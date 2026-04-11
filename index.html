@@ -279,29 +279,27 @@ function TeacherDashboard({user, profile, onSignOut}) {
     setLoading(false);
   }
 
-  async function sendInvite() {
+async function sendInvite() {
     if (!inviteEmail.trim()) return;
     setInviteStatus("sending");
     const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const siteUrl = "https://teachergeanine.netlify.app";
-    const registerLink = siteUrl + "?register=" + token;
     await sb.from("invites").insert({email: inviteEmail, token, used: false, created_by: user.id, created_at: new Date().toISOString()});
     try {
-      await emailjs.send(
-        "service_e9warbr",
-        "template_ci39t6r",
-        {
-          to_email: inviteEmail,
-          teacher_name: profile.name || "Geanine Giacomin",
-          register_link: registerLink,
-        },
-        "w3Gsz7oM3M5Q5-6wi"
-      );
+      const res = await fetch("/.netlify/functions/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: inviteEmail,
+          token,
+          teacherName: profile.name || "Geanine Giacomin",
+        }),
+      });
+      if (!res.ok) throw new Error("Failed");
       setInviteStatus("sent");
       setInviteEmail("");
       setTimeout(() => setInviteStatus(""), 3000);
     } catch(err) {
-      console.error("EmailJS error:", err);
+      console.error("Invite error:", err);
       setInviteStatus("error");
     }
   }
