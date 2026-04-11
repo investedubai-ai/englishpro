@@ -36,12 +36,12 @@ const BG="#f7f5f0", SURF="#ffffff", RAISED="#f0ede8", BORDER="#e2ddd6";
 const GREEN="#2e7d5e", RED="#c0392b";
 
 // ── API CALL (via Netlify proxy) ───────────────────────────────────────────────
-async function ask(system, messages) {
+async function ask(system, messages, max_tokens=500) {
   try {
     const r = await fetch("/.netlify/functions/claude", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system, messages }),
+      body: JSON.stringify({ system, messages, max_tokens }),
     });
     const d = await r.json();
     return d?.content?.[0]?.text || "Try again.";
@@ -522,7 +522,7 @@ function Conversation({user, profile, lang}) {
     setBusy(true);
     const sys=`You are practising "${SCENARIOS[sc].label}" in English with a Brazilian student named ${name} (role: ${role}). Keep replies to 2-3 sentences. After EVERY reply write "Tip:" followed by one grammar/vocabulary correction. If no errors write "Tip: Perfect — no corrections needed."`;
     const history=next.map(m=>({role:m.a?"assistant":"user",content:m.t}));
-    const reply=await ask(sys,history);
+    const reply=await ask(sys,history,300);
     const newMsgs=[...next,{a:1,t:reply}];
     setMsgs(newMsgs);
     setBusy(false);
@@ -631,7 +631,8 @@ function Grammar({user, profile, lang}) {
     setBusy(true);setResult(null);
     const r=await ask(
       `You are a warm English tutor for a Brazilian ${role}. Analyse the text for grammar, vocabulary, and naturalness errors. Reply in plain text only — no markdown, no asterisks. Use this exact structure:\n\nCORRECTED VERSION:\n[corrected text with (was: original) after each fix]\n\nCORRECTIONS:\n1. [error + why Brazilians make this mistake]\n\nSTRENGTH:\n[one positive observation]\n\nMax 220 words. Warm tone.`,
-      [{role:"user",content:`Check: "${text.trim()}"`}]
+      [{role:"user",content:`Check: "${text.trim()}"`}],
+      400
     );
     setResult(r);
     await saveProgress(user.id,"grammar",{original:text.trim(),feedback:r});
@@ -711,7 +712,7 @@ They spoke and the speech-to-text captured what they said.
 5. End with genuine encouragement.
 Reply in plain text only. No markdown. Structure:
 WHAT YOU SAID:\n[transcript]\nCOMPARED TO TARGET:\n[differences, warm tone]\nPRONUNCIATION TIPS:\n[1-2 tips]\nWELL DONE:\n[positive observation]\nMax 200 words.`;
-    const r=await ask(sys,[{role:"user",content:`My speech was captured as: "${transcript.trim()}"`}]);
+    const r=await ask(sys,[{role:"user",content:`My speech was captured as: "${transcript.trim()}"`}],350);
     setFeedback(r);
     setHistory(h=>[{prompt:prompt.text,topic:prompt.topic,transcript:transcript.trim(),feedback:r},...h].slice(0,5));
     await saveProgress(user.id,"speaking",{prompt:prompt.text,topic:prompt.topic,transcript:transcript.trim(),feedback:r});
