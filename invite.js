@@ -12,7 +12,7 @@ exports.handler = async function (event) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        service_id: "service_eo7ydoc",
+        service_id: "service_e9warbr",
         template_id: "mf3yqag",
         user_id: "w3Gsz7oM3M5Q5-6wi",
         template_params: {
