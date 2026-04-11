@@ -38,20 +38,10 @@ const GREEN="#2e7d5e", RED="#c0392b";
 // ── API CALL (via Netlify proxy) ───────────────────────────────────────────────
 async function ask(system, messages) {
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const r = await fetch("/.netlify/functions/claude", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": "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",
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "direct-browser-access",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 500,
-        system,
-        messages,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system, messages }),
     });
     const d = await r.json();
     return d?.content?.[0]?.text || "Try again.";
