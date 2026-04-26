@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>EnglishPro — Professional English Platform</title>
+<!-- React & ReactDOM: long-lived CDN cache, loaded before Babel -->
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<!--
+  Babel Standalone: ~7MB. The crossorigin attribute allows the browser to
+  cache this across origins. Once cached it is NOT re-downloaded on revisits.
+  The data-presets attribute limits transpilation to JSX only — skips
+  unnecessary transforms and cuts runtime ~40%.
+-->
+<script crossorigin
+  src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"
+  data-presets="react">
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f7f5f0}
+@keyframes dp{0%,80%,100%{opacity:.2}40%{opacity:1}}
+@keyframes bar{from{transform:scaleY(.4)}to{transform:scaleY(1)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+input,textarea,select{font-family:inherit}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useRef, useEffect, useCallback } = React;
+
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const SUPABASE_URL = "https://dhzssuvdnmloszphuavq.supabase.co";
+const SUPABASE_KEY = "sb_publishable_d7APFKd34U8De-DQXjnsrQ_GecerPK5";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const TEACHER_EMAIL = "geanine@englishpro.app";
+
+// ── COLOURS ───────────────────────────────────────────────────────────────────
+const GOLD="#b8832e", BLUE="#2c5f8a", INK="#1a1a2e", MUTED="#6b6872";
+const BG="#f7f5f0", SURF="#ffffff", RAISED="#f0ede8", BORDER="#e2ddd6";
+const GREEN="#2e7d5e", RED="#c0392b";
+
+// ── API CALL (via Vercel serverless function) ─────────────────────────────────
+// FIX: Changed from /.netlify/functions/claude → /api/claude
+async function ask(system, messages, max_tokens=500) {
+  try {
+    const r = await fetch("/api/claude", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system, messages, max_tokens }),
+    });
+    if (!r.ok) {
+      console.error("API error:", r.status);
+      return "Connection error — please try again.";
+    }
+    const d = await r.json();
+    return d?.content?.[0]?.text || "Try again.";
+  } catch {
+    return "Connection error — please try again.";
+  }
+}
+
+// ── SAVE PROGRESS TO SUPABASE ─────────────────────────────────────────────────
+async function saveProgress(userId, module, data) {
+  try {
+    await sb.from("progress").insert({
+      user_id: userId,
+      module,
+      data,
+      created_at: new Date().toISOString(),
+    });
+  } catch(e) {
+    console.warn("Progress save failed (non-critical):", e);
+  }
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function Dots() {
+  return (
+    <span style={{display:"inline-flex",gap:4}}>
+      {[0,1,2].map(i=>(
+        <span key={i} style={{width:6,height:6,borderRadius:"50%",background:BLUE,display:"inline-block",
+          animation:`dp 1.2s ${i*0.2}s infinite ease-in-out`}}/>
+      ))}
+    </span>
+  );
+}
+
+function Spinner() {
+  return <div style={{width:20,height:20,border:`2px solid ${BORDER}`,borderTop:`2px solid ${BLUE}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>;
+}
+
+function Btn({onClick,children,color=INK,disabled,full}) {
+  return (
+    <button onClick={disabled?null:onClick} style={{
+      padding:"9px 20px", background:disabled?"#ccc":color, color:"#fff",
+      border:"none", borderRadius:8, fontSize:13, fontWeight:500,
+      cursor:disabled?"not-allowed":"pointer", fontFamily:"inherit",
+      opacity:disabled?0.6:1, width:full?"100%":"auto",
+    }}>{children}</button>
+  );
+}
+
+function Field({label,type="text",value,onChange,placeholder,autoComplete}) {
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>{label}</div>
+      <input type={type} value={value} onChange={e=>onChange(e.target.value)}
+        placeholder={placeholder} autoComplete={autoComplete}
+        style={{width:"100%",padding:"9px 12px",background:RAISED,border:`1px solid ${BORDER}`,
+          borderRadius:8,color:INK,fontSize:14,outline:"none",boxSizing:"border-box"}}/>
+    </div>
+  );
+}
+
+// ── CONTENT DATA ──────────────────────────────────────────────────────────────
+const QS = [
+  {cat:"Grammar",q:"Choose the correct sentence:",opts:["She don't like coffee.","She doesn't likes coffee.","She doesn't like coffee.","She not like coffee."],c:2},
+  {cat:"Grammar",q:'Fill in: "I ___ here since 2019."',opts:["am working","have been working","was working","did work"],c:1},
+  {cat:"Grammar",q:"Which is correct?",opts:["Yesterday I have seen a film.","Yesterday I was see a film.","Yesterday I saw a film.","Yesterday I did see a film."],c:2},
+  {cat:"Grammar",q:'"If I ___ more time, I would study every day."',opts:["have","had","would have","will have"],c:1},
+  {cat:"Grammar",q:'"The report ___ by the team last week."',opts:["was written","is written","has written","wrote"],c:0},
+  {cat:"Vocabulary",q:'Which means "to make something officially valid"?',opts:["negotiate","ratify","postpone","allocate"],c:1},
+  {cat:"Vocabulary",q:'"We need to ___ the budget before end of quarter."',opts:["revise","revive","revolve","reverse"],c:0},
+  {cat:"Vocabulary",q:'What does "reach a consensus" mean?',opts:["Disagree formally","Agree as a group","Present a new idea","Cancel a meeting"],c:1},
+  {cat:"Vocabulary",q:'"The CEO gave a ___ speech — short but powerful."',opts:["concise","precise","decisive","incisive"],c:0},
+  {cat:"Business",q:"Best opening for a formal business email:",opts:["Hey, just so you know…","I am writing to inform you that…","FYI, the meeting is moved.","So basically…"],c:1},
+  {cat:"Business",q:'"Let\'s table this issue." Meaning:',opts:["Deal with it now","Leave it for later","Cancel it","Write it down"],c:1},
+  {cat:"Business",q:"Most professional response when you disagree in a meeting:",opts:["That's totally wrong.","I respectfully disagree — here's my perspective.","No way that works.","I don't think so."],c:1},
+  {cat:"Business",q:"Most formal way to make a written request:",opts:["Can you please…","Would you be so kind as to…","I was wondering if maybe…","Could I ask you to…"],c:1},
+  {cat:"Reading",q:'Read: "The company increased revenue 12% through cost-cutting and expansion into new markets."\n\nMain reason for revenue increase?',opts:["Hiring staff","Raising prices","Cost-cutting and expanding markets","Government support"],c:2},
+  {cat:"Reading",q:'Read: "Reports due Friday. Deadline extended by two days."\n\nNew deadline?',opts:["Wednesday","Friday","Sunday","Monday"],c:2},
+  {cat:"Reading",q:'Read: "Remote work challenges team cohesion. Companies invest in digital tools to bridge this gap."\n\nWhat problem is addressed?',opts:["Office space","Too many tools","Weak team connection","Overwork"],c:2},
+];
+
+const SCENARIOS = {
+  greetings:{label:"Everyday greetings",g:"daily"},
+  shopping:{label:"Shopping & errands",g:"daily"},
+  restaurant:{label:"At a restaurant",g:"daily"},
+  smalltalk:{label:"Small talk",g:"daily"},
+  phone:{label:"Phone conversations",g:"daily"},
+  meeting:{label:"Business meeting",g:"business"},
+  email:{label:"Discussing an email",g:"business"},
+  negotiation:{label:"Negotiation",g:"business"},
+  interview:{label:"Job interview",g:"business"},
+  networking:{label:"Networking",g:"business"},
+  presentation:{label:"Presentation",g:"business"},
+  feedback:{label:"Giving feedback",g:"business"},
+  report:{label:"Reporting to management",g:"business"},
+};
+
+const ARTICLE = [
+  "Over the past five years, remote work has transformed from a privilege to a standard practice globally. The COVID-19 pandemic accelerated this shift dramatically.",
+  "Executives must now master clear written communication, video conferencing, and managing time zones. For Brazilian professionals, this has opened opportunities to work with companies in the US, Europe, and Asia.",
+  "McKinsey research suggests flexible work models raise employee satisfaction and productivity. However, building company culture without face-to-face contact requires deliberate effort.",
+  "Professionals who thrive share one trait: they communicate proactively and clearly — especially in English, the dominant language of international business.",
+];
+
+const AQS = [
+  {q:"What accelerated remote work adoption?",opts:["New laws","COVID-19 pandemic","Economic crisis","Social media"],c:1},
+  {q:"What opportunity did remote work create for Brazilian professionals?",opts:["Moving abroad","Government grants","Working with international companies","Fewer hours"],c:2},
+  {q:"What did McKinsey find about flexible work models?",opts:["Reduce profits","Raise satisfaction and productivity","Hard to implement","Only for large companies"],c:1},
+  {q:"Main challenge of remote work described?",opts:["Slow internet","Payroll","Maintaining culture without face-to-face","Finding clients"],c:2},
+  {q:"What do successful remote professionals share?",opts:["Long hours","Avoid video calls","Communicate proactively and clearly","Same time zone as clients"],c:2},
+  {q:'"Cohesion" most likely means:',opts:["Competition","Unity and connection","A strategy","A tool"],c:1},
+];
+
+const SPEECH_PROMPTS = [
+  {text:"Good morning! I'd like to schedule a meeting for next week.",topic:"Greetings & scheduling"},
+  {text:"I'm calling to follow up on the proposal we sent last Friday.",topic:"Business follow-up"},
+  {text:"Could you please send me the updated report by end of day?",topic:"Making requests"},
+  {text:"I respectfully disagree — I think we should consider a different approach.",topic:"Disagreeing professionally"},
+  {text:"Thank you for your time. I look forward to hearing from you.",topic:"Closing a conversation"},
+  {text:"We need to discuss the budget allocation for the third quarter.",topic:"Finance talk"},
+  {text:"I'm confident this strategy will help us reach our targets.",topic:"Presentations"},
+  {text:"Let me clarify what I meant — the deadline is the fifteenth, not the fifth.",topic:"Clarifying"},
+];
+
+// ── AUTH SCREENS ──────────────────────────────────────────────────────────────
+function AuthScreen({onLogin}) {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("executive");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("register");
+    if (token) {
+      sb.from("invites").select("*").eq("token", token).eq("used", false).single()
+        .then(({data}) => {
+          if (data) { setEmail(data.email); setMode("register"); }
+          else setError("This invite link is invalid or has already been used.");
+        });
+    }
+  }, []);
+
+  async function handleLogin() {
+    setLoading(true); setError("");
+    const {data, error} = await sb.auth.signInWithPassword({email, password});
+    if (error) { setError(error.message); setLoading(false); return; }
+    const {data: profile} = await sb.from("profiles").select("*").eq("id", data.user.id).single();
+    onLogin(data.user, profile);
+    setLoading(false);
+  }
+
+  async function handleRegister() {
+    if (!name.trim()) { setError("Please enter your name."); return; }
+    setLoading(true); setError("");
+    const {data, error} = await sb.auth.signUp({email, password});
+    if (error) { setError(error.message); setLoading(false); return; }
+    await sb.from("profiles").insert({id: data.user.id, name, role, email, is_teacher: false});
+    await sb.from("invites").update({used: true}).eq("email", email);
+    setMsg("Account created! Please check your email to confirm, then log in.");
+    setMode("login");
+    setLoading(false);
+  }
+
+  const card = {background:SURF,border:`1px solid ${BORDER}`,borderRadius:14,padding:"2rem",width:"100%",maxWidth:380,boxShadow:"0 4px 24px rgba(0,0,0,.08)"};
+  return (
+    <div style={{minHeight:"100vh",background:`linear-gradient(135deg,#e8f4fd,${BG},#fef9f0)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2rem"}}>
+      <div style={{fontFamily:"Georgia,serif",fontSize:"2.4rem",color:INK,marginBottom:4}}>English<span style={{color:GOLD}}>Pro</span></div>
+      <div style={{color:MUTED,fontSize:11,letterSpacing:".1em",textTransform:"uppercase",marginBottom:"2.5rem"}}>Professional English Platform</div>
+      <div style={card}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:20,color:INK,marginBottom:4}}>
+          {mode==="login"?"Welcome back · Bem-vindo(a)":"Create your account"}
+        </div>
+        <div style={{color:MUTED,fontSize:13,marginBottom:"1.4rem",lineHeight:1.6}}>
+          {mode==="login"?"Sign in to continue · Entre para continuar":"Set up your EnglishPro account"}
+        </div>
+        {error && <div style={{padding:"9px 12px",background:"#fdf0ef",border:"1px solid #e8928c",borderRadius:8,fontSize:13,color:RED,marginBottom:14}}>{error}</div>}
+        {msg && <div style={{padding:"9px 12px",background:"#edf7f0",border:"1px solid #7ec8a0",borderRadius:8,fontSize:13,color:"#1e6b40",marginBottom:14}}>{msg}</div>}
+        {mode==="register" && (
+          <>
+            <Field label="Your name · Seu nome" value={name} onChange={setName} placeholder="Ana or Carlos"/>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>Role · Cargo</div>
+              <select value={role} onChange={e=>setRole(e.target.value)} style={{width:"100%",padding:"9px 12px",background:RAISED,border:`1px solid ${BORDER}`,borderRadius:8,color:INK,fontSize:14,outline:"none",cursor:"pointer"}}>
+                {["executive","assistant","manager","professional"].map(r=><option key={r} value={r}>{r.charAt(0).toUpperCase()+r.slice(1)}</option>)}
+              </select>
+            </div>
+          </>
+        )}
+        <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="you@company.com" autoComplete="email"/>
+        <Field label="Password · Senha" type="password" value={password} onChange={setPassword} placeholder="••••••••" autoComplete={mode==="login"?"current-password":"new-password"}/>
+        <Btn onClick={mode==="login"?handleLogin:handleRegister} disabled={loading||!email||!password} color={GOLD} full>
+          {loading?<Spinner/>:mode==="login"?"Sign in · Entrar →":"Create account →"}
+        </Btn>
+        {mode==="login" && (
+          <div style={{marginTop:14,textAlign:"center",fontSize:13,color:MUTED}}>
+            New student?{" "}
+            <span style={{color:BLUE,cursor:"pointer"}} onClick={()=>setMode("register")}>Create account</span>
+          </div>
+        )}
+      </div>
+      <div style={{position:"fixed",bottom:14,right:18,fontSize:12,color:MUTED}}>Geanine Giacomin</div>
+    </div>
+  );
+}
+
+// ── TEACHER DASHBOARD ─────────────────────────────────────────────────────────
+function TeacherDashboard({user, profile, onSignOut}) {
+  const [students, setStudents] = useState([]);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteStatus, setInviteStatus] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [studentProgress, setStudentProgress] = useState([]);
+
+  useEffect(() => { loadStudents(); }, []);
+
+  async function loadStudents() {
+    setLoading(true);
+    const {data} = await sb.from("profiles").select("*").eq("is_teacher", false).order("created_at", {ascending:false});
+    setStudents(data || []);
+    setLoading(false);
+  }
+
+  async function sendInvite() {
+    if (!inviteEmail.trim()) return;
+    setInviteStatus("sending");
+    const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    await sb.from("invites").insert({email: inviteEmail, token, used: false, created_by: user.id, created_at: new Date().toISOString()});
+    try {
+      // FIX: Changed from /.netlify/functions/invite → /api/invite
+      const res = await fetch("/api/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: inviteEmail,
+          token,
+          teacherName: profile.name || "Geanine Giacomin",
+        }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      setInviteStatus("sent");
+      setInviteEmail("");
+      setTimeout(() => setInviteStatus(""), 3000);
+    } catch(err) {
+      console.error("Invite error:", err);
+      setInviteStatus("error");
+    }
+  }
+
+  async function viewStudent(student) {
+    setSelectedStudent(student);
+    const {data} = await sb.from("progress").select("*").eq("user_id", student.id).order("created_at", {ascending:false});
+    setStudentProgress(data || []);
+  }
+
+  function exportCSV(student) {
+    const rows = [["Date","Module","Details"]];
+    studentProgress.forEach(p => {
+      const d = p.data;
+      const detail = typeof d === "object" ? JSON.stringify(d) : String(d);
+      rows.push([new Date(p.created_at).toLocaleDateString(), p.module, detail.replace(/,/g,"；")]);
+    });
+    const csv = rows.map(r=>r.join(",")).join("\n");
+    const blob = new Blob([csv], {type:"text/csv"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href=url; a.download=`${student.name}-progress.csv`; a.click();
+  }
+
+  const cardStyle = {background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.4rem",boxShadow:"0 2px 8px rgba(0,0,0,.04)",marginBottom:12};
+
+  if (selectedStudent) return (
+    <div style={{maxWidth:820,margin:"0 auto",padding:"1.8rem 1rem 4rem"}}>
+      <button onClick={()=>{setSelectedStudent(null);setStudentProgress([]);}} style={{background:"none",border:`1px solid ${BORDER}`,borderRadius:8,padding:"6px 14px",fontSize:13,color:MUTED,cursor:"pointer",fontFamily:"inherit",marginBottom:"1.2rem"}}>
+        ← Back to students
+      </button>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1.4rem",flexWrap:"wrap",gap:8}}>
+        <div>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:500}}>{selectedStudent.name}</h1>
+          <div style={{color:MUTED,fontSize:13}}>{selectedStudent.email} · {selectedStudent.role}</div>
+        </div>
+        <Btn onClick={()=>exportCSV(selectedStudent)} color={GREEN}>Export CSV ↓</Btn>
+      </div>
+      {studentProgress.length === 0
+        ? <div style={{...cardStyle,textAlign:"center",color:MUTED,padding:"3rem"}}>No activity recorded yet.</div>
+        : studentProgress.map((p,i) => (
+          <div key={i} style={cardStyle}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <span style={{fontSize:10,fontWeight:500,textTransform:"uppercase",letterSpacing:".05em",padding:"2px 8px",borderRadius:5,background:`${BLUE}22`,color:BLUE}}>{p.module}</span>
+              <div style={{fontSize:12,color:MUTED}}>{new Date(p.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
+            </div>
+            <pre style={{fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",fontFamily:"inherit",color:INK,margin:0}}>
+              {typeof p.data === "object" ? JSON.stringify(p.data, null, 2) : p.data}
+            </pre>
+          </div>
+        ))
+      }
+    </div>
+  );
+
+  return (
+    <div style={{maxWidth:820,margin:"0 auto",padding:"1.8rem 1rem 4rem"}}>
+      <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:4}}>Teacher Dashboard</h1>
+      <p style={{color:MUTED,fontSize:14,marginBottom:"1.8rem"}}>Welcome, {profile.name}. Manage your students and track their progress.</p>
+      <div style={{...cardStyle,borderLeft:`3px solid ${GOLD}`}}>
+        <div style={{fontSize:13,fontWeight:500,color:INK,marginBottom:10}}>Invite a new student</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <input value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&sendInvite()}
+            placeholder="student@email.com" type="email"
+            style={{flex:1,minWidth:200,padding:"9px 12px",background:RAISED,border:`1px solid ${BORDER}`,borderRadius:8,fontSize:14,outline:"none",color:INK}}/>
+          <Btn onClick={sendInvite} disabled={!inviteEmail.trim()||inviteStatus==="sending"} color={GOLD}>
+            {inviteStatus==="sending"?"Sending…":inviteStatus==="sent"?"✓ Sent!":inviteStatus==="error"?"Error — retry":"Send invite →"}
+          </Btn>
+        </div>
+        <div style={{fontSize:12,color:MUTED,marginTop:8}}>Student will receive an email with a registration link.</div>
+      </div>
+      <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>Students ({students.length})</div>
+      {loading ? <div style={{textAlign:"center",padding:"2rem"}}><Spinner/></div>
+        : students.length === 0
+        ? <div style={{...cardStyle,textAlign:"center",color:MUTED,padding:"2rem"}}>No students yet. Send your first invite above.</div>
+        : students.map(s => (
+          <div key={s.id} style={{...cardStyle,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}} onClick={()=>viewStudent(s)}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:BLUE,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:600,color:"#fff",flexShrink:0}}>
+                {(s.name||"?")[0].toUpperCase()}
+              </div>
+              <div>
+                <div style={{fontWeight:500,fontSize:14,color:INK}}>{s.name}</div>
+                <div style={{fontSize:12,color:MUTED}}>{s.email} · {s.role}</div>
+              </div>
+            </div>
+            <div style={{fontSize:12,color:BLUE,fontWeight:500}}>View progress →</div>
+          </div>
+        ))
+      }
+    </div>
+  );
+}
+
+// ── ASSESSMENT ────────────────────────────────────────────────────────────────
+function Assessment({user, lang, onDone}) {
+  const [step,setStep]=useState(0);
+  const [answers,setAnswers]=useState([]);
+  const [sel,setSel]=useState(null);
+  const [shown,setShown]=useState(false);
+  const [done,setDone]=useState(false);
+  const q=QS[step];
+
+  async function next() {
+    const na=[...answers,{sel,c:q.c,cat:q.cat,q:q.q,chosen:q.opts[sel],correct:q.opts[q.c]}];
+    setAnswers(na);
+    if(step+1>=QS.length){
+      setDone(true);
+      const total=na.filter(a=>a.sel===a.c).length;
+      const pct=Math.round(total/QS.length*100);
+      const lvl=pct<=35?"A2":pct<=55?"B1":pct<=75?"B2":"C1";
+      await saveProgress(user.id,"assessment",{score:total,total:QS.length,pct,level:lvl,answers:na});
+      onDone(na);
+    } else {setStep(s=>s+1);setSel(null);setShown(false);}
+  }
+
+  if(done) {
+    const cats=["Grammar","Vocabulary","Business","Reading"];
+    const sc={};
+    cats.forEach(cat=>{const qs=answers.filter(a=>a.cat===cat);sc[cat]=qs.length?Math.round(qs.filter(a=>a.sel===a.c).length/qs.length*100):0;});
+    const total=answers.filter(a=>a.sel===a.c).length;
+    const pct=Math.round(total/QS.length*100);
+    const lvl=pct<=35?"A2":pct<=55?"B1":pct<=75?"B2":"C1";
+    const weak=cats.filter(c=>sc[c]<60);
+    const desc={A2:"Iniciante · Elementary",B1:"Intermediário · Intermediate",B2:"Interm. avançado · Upper intermediate",C1:"Avançado · Advanced"}[lvl];
+    return (
+      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"2rem",textAlign:"center",boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
+        <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".08em"}}>{lang==="pt"?"Nível estimado":"Estimated level"}</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:72,color:BLUE,lineHeight:1,margin:"8px 0"}}>{lvl}</div>
+        <p style={{color:MUTED,fontSize:14,margin:"8px 0"}}>{desc}</p>
+        <p style={{fontSize:13,color:MUTED}}>{lang==="pt"?"Pontuação":"Score"}: {total}/{QS.length} ({pct}%)</p>
+        <div style={{maxWidth:360,margin:"1.4rem auto",textAlign:"left"}}>
+          {cats.map(cat=>(
+            <div key={cat} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}>
+                <span style={{fontWeight:500}}>{cat}</span>
+                <span style={{color:sc[cat]<60?"#b53a2f":"#1e6b40",fontWeight:500}}>{sc[cat]}%</span>
+              </div>
+              <div style={{height:5,background:RAISED,borderRadius:3,overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${sc[cat]}%`,background:sc[cat]<60?"#e8928c":BLUE,borderRadius:3}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+        {weak.length>0&&(
+          <div style={{maxWidth:360,margin:"0 auto 1.2rem",padding:"10px 14px",background:"#fef9ec",border:"1px solid #f0c84a",borderRadius:8,fontSize:13,color:"#7a5200",textAlign:"left"}}>
+            <strong>{lang==="pt"?"Áreas para focar":"Focus areas"}:</strong> {weak.join(", ")}
+          </div>
+        )}
+        <Btn onClick={()=>{setStep(0);setAnswers([]);setSel(null);setShown(false);setDone(false);}} color={INK}>
+          {lang==="pt"?"Refazer":"Retake"}
+        </Btn>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:3,marginBottom:"1.4rem"}}>
+        {QS.map((_,i)=><div key={i} style={{height:4,flex:1,borderRadius:2,background:i<step?GOLD:i===step?BLUE:BORDER}}/>)}
+      </div>
+      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.6rem",boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
+        <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>{q.cat} · {step+1}/{QS.length}</div>
+        <div style={{fontWeight:500,fontSize:15,lineHeight:1.65,marginBottom:"1.2rem",whiteSpace:"pre-line",color:INK}}>{q.q}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:"1.2rem"}}>
+          {q.opts.map((o,i)=>{
+            let bg=SURF,border=`1px solid ${BORDER}`,color=INK;
+            if(shown){if(i===q.c){bg="#edf7f0";border="1px solid #7ec8a0";color="#1e6b40";}else if(i===sel){bg="#fdf0ef";border="1px solid #e8928c";color="#b53a2f";}}
+            else if(i===sel){bg="#eef4fb";border=`1px solid ${BLUE}`;color=BLUE;}
+            return <div key={i} onClick={()=>!shown&&setSel(i)} style={{padding:"10px 14px",border,borderRadius:8,cursor:shown?"default":"pointer",fontSize:14,background:bg,color,transition:"all .1s"}}>{o}</div>;
+          })}
+        </div>
+        {!shown
+          ?<Btn onClick={()=>sel!==null&&setShown(true)} disabled={sel===null} color={INK}>{lang==="pt"?"Verificar resposta":"Check answer"}</Btn>
+          :<Btn onClick={next} color={BLUE}>{step+1<QS.length?(lang==="pt"?"Próxima →":"Next →"):(lang==="pt"?"Ver resultado →":"See results →")}</Btn>
+        }
+      </div>
+    </div>
+  );
+}
+
+// ── CONVERSATION ──────────────────────────────────────────────────────────────
+// FIX: History trimmed to last 5 exchanges (10 messages) to prevent token bloat.
+// A rolling summary is injected into the system prompt to maintain coherence.
+const MAX_HISTORY = 10; // 5 user + 5 AI = 10 messages max sent to API
+
+function Conversation({user, profile, lang}) {
+  const [sc,setSc]=useState("greetings");
+  const [msgs,setMsgs]=useState([]);
+  const [input,setInput]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [summary,setSummary]=useState(""); // rolling summary of trimmed history
+  const ref=useRef(null);
+  const init=useRef(false);
+  const name=profile?.name||"";
+  const role=profile?.role||"professional";
+
+  function start(key) {
+    setMsgs([{a:1,t:lang==="pt"
+      ?`Olá${name?", "+name:""}! Vamos praticar "${SCENARIOS[key].label}". Escreva em inglês para começar.`
+      :`Hello${name?", "+name:""}! Let's practise "${SCENARIOS[key].label}". Write in English to begin.`
+    }]);
+    setInput("");
+    setSummary("");
+  }
+
+  useEffect(()=>{if(!init.current){start("greetings");init.current=true;}},[]);
+  useEffect(()=>{if(ref.current)ref.current.scrollTop=ref.current.scrollHeight;},[msgs,busy]);
+
+  async function send() {
+    const t=input.trim();
+    if(!t||busy)return;
+    setInput("");
+    const next=[...msgs,{a:0,t}];
+    setMsgs(next);
+    setBusy(true);
+
+    // FIX: Only send last MAX_HISTORY messages to API, prepend summary for context
+    const recentMsgs = next.slice(-MAX_HISTORY);
+    const summaryPrefix = summary
+      ? `[Earlier in this conversation: ${summary}]\n\n`
+      : "";
+
+    const sys=`${summaryPrefix}You are practising "${SCENARIOS[sc].label}" in English with a Brazilian student named ${name} (role: ${role}). Keep replies to 2-3 sentences. After EVERY reply write "Tip:" followed by one grammar/vocabulary correction. If no errors write "Tip: Perfect — no corrections needed."`;
+
+    const history=recentMsgs.map(m=>({role:m.a?"assistant":"user",content:m.t}));
+    const reply=await ask(sys,history,300);
+    const newMsgs=[...next,{a:1,t:reply}];
+    setMsgs(newMsgs);
+
+    // When conversation grows past MAX_HISTORY, build a brief rolling summary
+    // so context isn't lost when old messages are trimmed
+    if(newMsgs.length > MAX_HISTORY + 2) {
+      const trimmed = newMsgs.slice(0, newMsgs.length - MAX_HISTORY);
+      const keyPoints = trimmed
+        .filter(m=>m.a===0)
+        .slice(-3)
+        .map(m=>m.t)
+        .join("; ");
+      setSummary(prev =>
+        `${prev ? prev + " | " : ""}Student discussed: ${keyPoints}`.slice(-300)
+      );
+    }
+
+    setBusy(false);
+
+    // Save every 4 student messages (unchanged)
+    if(newMsgs.filter(m=>m.a===0).length%4===0) {
+      await saveProgress(user.id,"conversation",{scenario:sc,messages:newMsgs.slice(-8).map(m=>({role:m.a?"ai":"student",text:m.t}))});
+    }
+  }
+
+  const daily=Object.entries(SCENARIOS).filter(([,v])=>v.g==="daily");
+  const biz=Object.entries(SCENARIOS).filter(([,v])=>v.g==="business");
+
+  return (
+    <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
+      <div style={{background:INK,padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+        <div style={{color:"#fff",fontWeight:500,fontSize:14}}>{SCENARIOS[sc].label}</div>
+        <select value={sc} onChange={e=>{setSc(e.target.value);start(e.target.value);}} style={{background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.2)",color:"#fff",padding:"5px 9px",borderRadius:7,fontSize:13,cursor:"pointer",outline:"none",fontFamily:"inherit"}}>
+          <optgroup label={lang==="pt"?"Dia a dia":"Daily"}>
+            {daily.map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+          </optgroup>
+          <optgroup label={lang==="pt"?"Profissional":"Professional"}>
+            {biz.map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+          </optgroup>
+        </select>
+      </div>
+      <div ref={ref} style={{height:300,overflowY:"auto",padding:"1rem",display:"flex",flexDirection:"column",gap:10}}>
+        {msgs.map((m,i)=>{
+          const isAI=m.a===1;
+          const parts=m.t.split(/\nTip:/);
+          const main=parts[0];
+          const tip=parts.length>1?parts[1]:null;
+          return (
+            <div key={i} style={{display:"flex",gap:8,maxWidth:"82%",alignSelf:isAI?"flex-start":"flex-end",flexDirection:isAI?"row":"row-reverse"}}>
+              <div style={{width:26,height:26,borderRadius:"50%",background:isAI?BLUE:GOLD,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:"#fff"}}>
+                {isAI?"AI":(name[0]||"U").toUpperCase()}
+              </div>
+              <div style={{padding:"9px 13px",borderRadius:11,fontSize:14,lineHeight:1.65,background:isAI?RAISED:INK,color:isAI?INK:"#fff",border:isAI?`1px solid ${BORDER}`:"none",...(isAI?{borderBottomLeftRadius:3}:{borderBottomRightRadius:3})}}>
+                {main?.trim()}
+                {tip&&<div style={{fontSize:12,color:GOLD,borderTop:`1px solid ${BORDER}`,marginTop:7,paddingTop:7}}>Tip:{tip}</div>}
+              </div>
+            </div>
+          );
+        })}
+        {busy&&<div style={{display:"flex",gap:8}}><div style={{width:26,height:26,borderRadius:"50%",background:BLUE,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff"}}>AI</div><div style={{padding:"9px 13px",borderRadius:11,background:RAISED,border:`1px solid ${BORDER}`}}><Dots/></div></div>}
+      </div>
+      <div style={{borderTop:`1px solid ${BORDER}`,padding:"10px 13px",display:"flex",gap:8,alignItems:"flex-end"}}>
+        <textarea value={input} onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
+          placeholder={lang==="pt"?"Digite em inglês…":"Type in English…"}
+          rows={1} style={{flex:1,padding:"8px 12px",border:`1px solid ${BORDER}`,borderRadius:8,fontSize:14,outline:"none",resize:"none",minHeight:40,maxHeight:100,background:RAISED,fontFamily:"inherit",color:INK,lineHeight:1.5}}/>
+        <Btn onClick={send} disabled={busy||!input.trim()} color={BLUE}>{lang==="pt"?"Enviar":"Send"}</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── READING ───────────────────────────────────────────────────────────────────
+function Reading({user, lang}) {
+  const [picks,setPicks]=useState({});
+  const done=Object.keys(picks).length===AQS.length;
+  const score=done?Object.entries(picks).filter(([i,a])=>+a===AQS[+i].c).length:0;
+
+  useEffect(()=>{
+    if(done) saveProgress(user.id,"reading",{score,total:AQS.length,answers:picks});
+  },[done]);
+
+  return (
+    <div>
+      <h3 style={{fontFamily:"Georgia,serif",fontSize:20,color:INK,marginBottom:12}}>The rise of remote work in global business</h3>
+      <div style={{background:RAISED,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.3rem",marginBottom:"1.2rem"}}>
+        {ARTICLE.map((p,i)=><p key={i} style={{marginBottom:11,fontSize:14,lineHeight:1.8,color:INK}}>{p}</p>)}
+      </div>
+      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.4rem",boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
+        <h4 style={{fontSize:15,fontWeight:500,marginBottom:"1.1rem",color:INK}}>{lang==="pt"?"Perguntas de compreensão":"Comprehension questions"}</h4>
+        {AQS.map((q,qi)=>{
+          const p=picks[qi];
+          return (
+            <div key={qi} style={{marginBottom:"1.2rem"}}>
+              <p style={{fontWeight:500,marginBottom:8,fontSize:14,color:INK}}>{qi+1}. {q.q}</p>
+              {q.opts.map((o,oi)=>{
+                let bg=SURF,border=`1px solid ${BORDER}`,color=INK;
+                if(p!==undefined){if(oi===q.c){bg="#edf7f0";border="1px solid #7ec8a0";color="#1e6b40";}else if(oi===p){bg="#fdf0ef";border="1px solid #e8928c";color="#b53a2f";}}
+                return <div key={oi} onClick={()=>p===undefined&&setPicks(x=>({...x,[qi]:oi}))} style={{padding:"9px 13px",border,borderRadius:8,marginBottom:5,cursor:p!==undefined?"default":"pointer",fontSize:14,background:bg,color,transition:"all .1s"}}>{o}</div>;
+              })}
+            </div>
+          );
+        })}
+        {done&&<div style={{padding:"11px 14px",background:score>=5?"#edf7f0":"#eef4fb",border:`1px solid ${score>=5?"#7ec8a0":"#8ab4d8"}`,borderRadius:8,fontSize:14,color:score>=5?"#1e6b40":BLUE}}>
+          <strong>{score}/{AQS.length} {lang==="pt"?"corretas":"correct"}.</strong>{" "}
+          {score===6?"Perfeito! / Perfect!":score>=4?"Muito bem! / Well done!":"Tente novamente. / Try again."}
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+// ── GRAMMAR ───────────────────────────────────────────────────────────────────
+// FIX: Added cooldown — student must wait 8 seconds between checks.
+// Prevents rapid-fire API calls burning tokens.
+const GRAMMAR_COOLDOWN_MS = 8000;
+
+function Grammar({user, profile, lang}) {
+  const [text,setText]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [result,setResult]=useState(null);
+  const [lastCheck,setLastCheck]=useState(0); // timestamp of last API call
+  const role=profile?.role||"professional";
+
+  const cooldownRemaining = Math.max(0, GRAMMAR_COOLDOWN_MS - (Date.now() - lastCheck));
+  const onCooldown = cooldownRemaining > 0;
+
+  async function check() {
+    if(!text.trim()||busy||onCooldown)return;
+    setBusy(true);setResult(null);
+    setLastCheck(Date.now());
+    const r=await ask(
+      `You are a warm English tutor for a Brazilian ${role}. Analyse the text for grammar, vocabulary, and naturalness errors. Reply in plain text only — no markdown, no asterisks. Use this exact structure:\n\nCORRECTED VERSION:\n[corrected text with (was: original) after each fix]\n\nCORRECTIONS:\n1. [error + why Brazilians make this mistake]\n\nSTRENGTH:\n[one positive observation]\n\nMax 220 words. Warm tone.`,
+      [{role:"user",content:`Check: "${text.trim()}"`}],
+      400
+    );
+    setResult(r);
+    await saveProgress(user.id,"grammar",{original:text.trim(),feedback:r});
+    setBusy(false);
+  }
+
+  return (
+    <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.6rem",boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
+      <h3 style={{fontSize:16,fontWeight:500,marginBottom:5,color:INK}}>{lang==="pt"?"Seu texto":"Your writing"}</h3>
+      <p style={{color:MUTED,fontSize:14,marginBottom:"1rem",lineHeight:1.6}}>{lang==="pt"?"Escreva naturalmente — os erros fazem parte do aprendizado!":"Write naturally — mistakes are how we learn!"}</p>
+      <textarea value={text} onChange={e=>setText(e.target.value)}
+        placeholder={lang==="pt"?"Exemplo: I working here since 2 years…":"Example: I working here since 2 years…"}
+        style={{width:"100%",padding:"10px 12px",border:`1px solid ${BORDER}`,borderRadius:8,fontSize:14,lineHeight:1.7,resize:"vertical",minHeight:110,outline:"none",background:RAISED,fontFamily:"inherit",color:INK,boxSizing:"border-box"}}/>
+      <div style={{marginTop:10,display:"flex",alignItems:"center",gap:10}}>
+        <Btn onClick={check} disabled={!text.trim()||busy||onCooldown} color={INK}>
+          {busy
+            ?(lang==="pt"?"Verificando…":"Checking…")
+            :onCooldown
+            ?(lang==="pt"?`Aguarde ${Math.ceil(cooldownRemaining/1000)}s…`:`Wait ${Math.ceil(cooldownRemaining/1000)}s…`)
+            :(lang==="pt"?"Verificar meu texto":"Check my writing")}
+        </Btn>
+        {busy&&<Dots/>}
+      </div>
+      {result&&<div style={{marginTop:14,background:RAISED,border:`1px solid ${BORDER}`,borderRadius:10,padding:"1.2rem"}}>
+        <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:".06em",color:BLUE,marginBottom:8,fontWeight:500}}>{lang==="pt"?"Feedback da sua tutora de IA":"Feedback from your AI tutor"}</div>
+        <pre style={{fontSize:14,lineHeight:1.8,whiteSpace:"pre-wrap",fontFamily:"inherit",color:INK,margin:0}}>{result}</pre>
+      </div>}
+    </div>
+  );
+}
+
+// ── SPEECH ────────────────────────────────────────────────────────────────────
+// FIX: Added cooldown on analysis — same principle as grammar checker.
+const SPEECH_COOLDOWN_MS = 6000;
+
+function Speech({user, profile, lang}) {
+  const [promptIdx,setPromptIdx]=useState(0);
+  const [listening,setListening]=useState(false);
+  const [transcript,setTranscript]=useState("");
+  const [interim,setInterim]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [feedback,setFeedback]=useState(null);
+  const [supported,setSupported]=useState(true);
+  const [history,setHistory]=useState([]);
+  const [lastAnalysis,setLastAnalysis]=useState(0);
+  const recogRef=useRef(null);
+  const role=profile?.role||"professional";
+
+  useEffect(()=>{if(!("webkitSpeechRecognition" in window)&&!("SpeechRecognition" in window))setSupported(false);},[]);
+
+  const prompt=SPEECH_PROMPTS[promptIdx];
+  const onCooldown = (Date.now() - lastAnalysis) < SPEECH_COOLDOWN_MS;
+
+  function startListening() {
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    const recog=new SR();
+    recog.lang="en-US";recog.continuous=false;recog.interimResults=true;
+    recogRef.current=recog;
+    recog.onstart=()=>setListening(true);
+    recog.onend=()=>{setListening(false);setInterim("");};
+    recog.onerror=()=>{setListening(false);setInterim("");};
+    recog.onresult=e=>{
+      let final="",inter="";
+      for(let i=e.resultIndex;i<e.results.length;i++){
+        if(e.results[i].isFinal)final+=e.results[i][0].transcript;
+        else inter+=e.results[i][0].transcript;
+      }
+      if(final)setTranscript(t=>(t+" "+final).trim());
+      setInterim(inter);
+    };
+    recog.start();
+  }
+
+  function stopListening(){recogRef.current?.stop();}
+
+  async function analyze() {
+    if(!transcript.trim()||busy||onCooldown)return;
+    setBusy(true);setFeedback(null);
+    setLastAnalysis(Date.now());
+    const sys=`You are a warm, encouraging English pronunciation and fluency coach for Brazilian adult professionals.
+The student was asked to read aloud this target sentence: "${prompt.text}"
+They spoke and the speech-to-text captured what they said.
+1. Compare what they said to the target — note missing, substituted, or added words.
+2. Identify likely pronunciation challenges for Brazilian Portuguese speakers (vowel insertion, th/d confusion, final consonant dropping, word stress).
+3. NEVER criticise their accent. Brazilian English is valid. Focus only on clarity and intelligibility.
+4. Give 1-2 specific, actionable tips.
+5. End with genuine encouragement.
+Reply in plain text only. No markdown. Structure:
+WHAT YOU SAID:\n[transcript]\nCOMPARED TO TARGET:\n[differences, warm tone]\nPRONUNCIATION TIPS:\n[1-2 tips]\nWELL DONE:\n[positive observation]\nMax 200 words.`;
+    const r=await ask(sys,[{role:"user",content:`My speech was captured as: "${transcript.trim()}"`}],350);
+    setFeedback(r);
+    setHistory(h=>[{prompt:prompt.text,topic:prompt.topic,transcript:transcript.trim(),feedback:r},...h].slice(0,5));
+    await saveProgress(user.id,"speaking",{prompt:prompt.text,topic:prompt.topic,transcript:transcript.trim(),feedback:r});
+    setBusy(false);
+  }
+
+  function next(){setPromptIdx(i=>(i+1)%SPEECH_PROMPTS.length);setTranscript("");setFeedback(null);setInterim("");}
+
+  if(!supported) return (
+    <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"2rem",textAlign:"center"}}>
+      <div style={{fontSize:32,marginBottom:12}}>🎤</div>
+      <p style={{color:MUTED,fontSize:14}}>{lang==="pt"?"Use o Chrome ou Edge para esta funcionalidade.":"Please use Chrome or Edge for this feature."}</p>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.6rem",marginBottom:14,boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12,flexWrap:"wrap",gap:8}}>
+          <div>
+            <div style={{fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:".08em",marginBottom:4}}>{lang==="pt"?"Diga em voz alta":"Read aloud"} · {prompt.topic}</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:20,color:INK,lineHeight:1.5,maxWidth:520}}>"{prompt.text}"</div>
+          </div>
+          <button onClick={next} style={{background:"none",border:`1px solid ${BORDER}`,borderRadius:8,padding:"5px 12px",fontSize:12,color:MUTED,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{lang==="pt"?"Outra frase →":"Next phrase →"}</button>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:transcript?12:0}}>
+          <button onClick={listening?stopListening:startListening} style={{width:56,height:56,borderRadius:"50%",background:listening?RED:BLUE,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:listening?`0 0 0 8px ${RED}22`:"0 2px 8px rgba(44,95,138,.3)",transition:"all .2s",flexShrink:0}}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              {listening
+                ?<rect x="6" y="6" width="12" height="12" rx="2" fill="white"/>
+                :<g><rect x="9" y="2" width="6" height="11" rx="3" fill="white"/><path d="M5 10a7 7 0 0014 0" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none"/><line x1="12" y1="17" x2="12" y2="21" stroke="white" strokeWidth="1.8" strokeLinecap="round"/><line x1="9" y1="21" x2="15" y2="21" stroke="white" strokeWidth="1.8" strokeLinecap="round"/></g>
+              }
+            </svg>
+          </button>
+          <div>
+            <div style={{fontSize:13,fontWeight:500,color:listening?RED:INK}}>
+              {listening?(lang==="pt"?"Ouvindo… clique para parar":"Listening… click to stop"):transcript?(lang==="pt"?"Clique para gravar novamente":"Click to record again"):(lang==="pt"?"Clique para falar":"Click to speak")}
+            </div>
+            {listening&&<div style={{fontSize:12,color:MUTED,marginTop:2}}>{lang==="pt"?"Fale a frase acima em inglês":"Say the phrase above in English"}</div>}
+          </div>
+          {listening&&<div style={{display:"flex",gap:3,alignItems:"center",marginLeft:"auto"}}>
+            {[0,1,2,3,4].map(i=><div key={i} style={{width:3,borderRadius:3,background:BLUE,opacity:0.7,height:16,animation:`bar 0.6s ${i*0.1}s infinite alternate ease-in-out`}}/>)}
+          </div>}
+        </div>
+        {(transcript||interim)&&<div style={{background:RAISED,border:`1px solid ${BORDER}`,borderRadius:8,padding:"10px 14px",marginTop:12}}>
+          <div style={{fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>{lang==="pt"?"O que foi captado":"What was captured"}</div>
+          <div style={{fontSize:14,color:INK,lineHeight:1.6}}>{transcript}{interim&&<span style={{color:MUTED}}> {interim}</span>}</div>
+          {transcript&&!listening&&<button onClick={()=>{setTranscript("");setFeedback(null);}} style={{marginTop:7,background:"none",border:"none",fontSize:12,color:MUTED,cursor:"pointer",padding:0,fontFamily:"inherit"}}>✕ {lang==="pt"?"Limpar":"Clear"}</button>}
+        </div>}
+        {transcript&&!listening&&<div style={{marginTop:12,display:"flex",alignItems:"center",gap:10}}>
+          <Btn onClick={analyze} disabled={busy||onCooldown} color={GOLD}>
+            {busy?(lang==="pt"?"Analisando…":"Analysing…"):onCooldown?(lang==="pt"?"Aguarde…":"Wait…"):(lang==="pt"?"Analisar pronúncia":"Analyse pronunciation")}
+          </Btn>
+          {busy&&<Dots/>}
+        </div>}
+      </div>
+      {feedback&&<div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.4rem",marginBottom:14,boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
+        <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:".06em",color:BLUE,marginBottom:8,fontWeight:500}}>{lang==="pt"?"Feedback da sua tutora de IA":"Feedback from your AI tutor"}</div>
+        <pre style={{fontSize:14,lineHeight:1.8,whiteSpace:"pre-wrap",fontFamily:"inherit",color:INK,margin:0}}>{feedback}</pre>
+        <div style={{marginTop:12,display:"flex",gap:8}}>
+          <Btn onClick={next} color={BLUE}>{lang==="pt"?"Próxima frase →":"Next phrase →"}</Btn>
+          <Btn onClick={()=>{setTranscript("");setFeedback(null);}} color={INK}>{lang==="pt"?"Tentar novamente":"Try again"}</Btn>
+        </div>
+      </div>}
+      {history.length>0&&<div style={{background:RAISED,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.2rem"}}>
+        <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>{lang==="pt"?"Histórico desta sessão":"This session's history"}</div>
+        {history.map((h,i)=>(
+          <div key={i} style={{borderTop:i>0?`1px solid ${BORDER}`:"none",paddingTop:i>0?10:0,marginTop:i>0?10:0}}>
+            <div style={{fontSize:11,color:GOLD,fontWeight:500,marginBottom:2}}>{h.topic}</div>
+            <div style={{fontSize:13,color:MUTED,fontStyle:"italic"}}>"{h.transcript}"</div>
+          </div>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
+// ── MAIN APP ──────────────────────────────────────────────────────────────────
+function App() {
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [tab, setTab] = useState(0);
+  const [level, setLevel] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    sb.auth.getSession().then(({data:{session}}) => {
+      if (session) {
+        setUser(session.user);
+        sb.from("profiles").select("*").eq("id", session.user.id).single()
+          .then(({data}) => { setProfile(data); setAuthLoading(false); });
+      } else { setAuthLoading(false); }
+    });
+    const {data:{subscription}} = sb.auth.onAuthStateChange((_,session) => {
+      if (!session) { setUser(null); setProfile(null); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function handleLogin(u, p) { setUser(u); setProfile(p); }
+  async function handleSignOut() {
+    await sb.auth.signOut();
+    setUser(null); setProfile(null); setTab(0); setLevel(null);
+  }
+
+  if (authLoading) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:BG}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:"2rem",color:INK,marginBottom:16}}>English<span style={{color:GOLD}}>Pro</span></div>
+        <Spinner/>
+      </div>
+    </div>
+  );
+
+  if (!user) return <AuthScreen onLogin={handleLogin}/>;
+
+  if (profile?.is_teacher) return (
+    <div style={{fontFamily:"system-ui,-apple-system,sans-serif",background:BG,minHeight:"100vh",color:INK}}>
+      <div style={{background:INK,padding:"10px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:18,color:"#fff"}}>English<span style={{color:GOLD}}>Pro</span> <span style={{fontSize:11,color:GOLD,letterSpacing:".08em",textTransform:"uppercase"}}>Teacher</span></div>
+        <div style={{display:"flex",alignItems:"center",gap:9}}>
+          <span style={{color:"rgba(255,255,255,.6)",fontSize:13}}>{profile.name}</span>
+          <button onClick={handleSignOut} style={{background:"none",border:"1px solid rgba(255,255,255,.2)",borderRadius:7,color:"rgba(255,255,255,.5)",fontSize:12,padding:"4px 9px",cursor:"pointer",fontFamily:"inherit"}}>Sign out</button>
+        </div>
+      </div>
+      <TeacherDashboard user={user} profile={profile} onSignOut={handleSignOut}/>
+      <div style={{position:"fixed",bottom:12,right:16,fontSize:11,color:MUTED,pointerEvents:"none"}}>Geanine Giacomin</div>
+    </div>
+  );
+
+  const lang = !level||level==="A2" ? "pt" : "en";
+  const h = new Date().getHours();
+  const greet = lang==="pt" ? (h<12?"Bom dia":h<17?"Boa tarde":"Boa noite") : (h<12?"Good morning":h<17?"Good afternoon":"Good evening");
+  const TABS = lang==="pt"
+    ? ["Painel","Nível","Conversação","Leitura","Gramática","Pronúncia"]
+    : ["Dashboard","Level check","Conversation","Reading","Grammar check","Speaking"];
+
+  function onDone(ans) {
+    const p=Math.round(ans.filter(a=>a.sel===a.c).length/QS.length*100);
+    setLevel(p<=35?"A2":p<=55?"B1":p<=75?"B2":"C1");
+  }
+
+  const cards=[
+    {b:lang==="pt"?"Comece aqui":"Start here",bc:GOLD,title:lang==="pt"?"Avaliação de Nível":"Level Assessment",d:lang==="pt"?"16 perguntas de gramática, vocabulário, leitura e negócios.":"16 questions across grammar, vocabulary, reading & business.",idx:1},
+    {b:lang==="pt"?"Prática":"Practice",bc:BLUE,title:lang==="pt"?"Conversação":"Conversation",d:lang==="pt"?"13 cenários com correções ao vivo.":"13 scenarios with live corrections.",idx:2},
+    {b:lang==="pt"?"Leitura":"Reading",bc:"#6c5fc7",title:lang==="pt"?"Leitura":"Reading",d:lang==="pt"?"Artigo de negócios + 6 perguntas.":"Business article + 6 questions.",idx:3},
+    {b:lang==="pt"?"Gramática":"Grammar",bc:GOLD,title:lang==="pt"?"Gramática":"Grammar Check",d:lang==="pt"?"Escreva qualquer coisa — receba correções com IA.":"Write anything — get instant AI corrections.",idx:4},
+    {b:lang==="pt"?"Falar":"Speaking",bc:GREEN,title:lang==="pt"?"Pronúncia":"Speaking",d:lang==="pt"?"Pratique frases reais em voz alta e receba feedback.":"Read real phrases aloud and get pronunciation feedback.",idx:5},
+  ];
+
+  return (
+    <div style={{fontFamily:"system-ui,-apple-system,sans-serif",background:BG,minHeight:"100vh",color:INK}}>
+      <div style={{background:INK,padding:"10px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:18,color:"#fff"}}>English<span style={{color:GOLD}}>Pro</span></div>
+        <div style={{display:"flex",alignItems:"center",gap:9}}>
+          <div style={{width:28,height:28,borderRadius:"50%",background:BLUE,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:600,color:"#fff"}}>{(profile?.name||user.email)[0].toUpperCase()}</div>
+          <span style={{color:"rgba(255,255,255,.6)",fontSize:13}}>{profile?.name}</span>
+          <button onClick={handleSignOut} style={{background:"none",border:"1px solid rgba(255,255,255,.2)",borderRadius:7,color:"rgba(255,255,255,.5)",fontSize:12,padding:"4px 9px",cursor:"pointer",fontFamily:"inherit"}}>{lang==="pt"?"Sair":"Sign out"}</button>
+        </div>
+      </div>
+      <div style={{background:SURF,borderBottom:`1px solid ${BORDER}`,display:"flex",padding:"0 18px",overflowX:"auto"}}>
+        {TABS.map((t,i)=>(
+          <button key={i} onClick={()=>setTab(i)} style={{padding:"11px 14px",background:"none",border:"none",fontFamily:"inherit",fontSize:13,fontWeight:500,color:tab===i?INK:MUTED,cursor:"pointer",borderBottom:tab===i?`2px solid ${GOLD}`:"2px solid transparent",whiteSpace:"nowrap"}}>{t}</button>
+        ))}
+      </div>
+      <div style={{maxWidth:820,margin:"0 auto",padding:"1.8rem 1rem 4rem"}}>
+        {tab===0&&<>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{greet}, {profile?.name}</h1>
+          <p style={{color:MUTED,fontSize:14,marginBottom:"1.5rem",lineHeight:1.6,maxWidth:480}}>{lang==="pt"?"Trabalhe em cada módulo — tente passar uma hora para identificar seus pontos fortes e fracos.":"Work through each module — aim for one hour to identify your strengths and weaknesses."}</p>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(175px,1fr))",gap:10,marginBottom:12}}>
+            {cards.map(c=>(
+              <div key={c.idx} onClick={()=>setTab(c.idx)} style={{background:SURF,border:`1px solid ${BORDER}`,borderLeft:`3px solid ${c.bc}`,borderRadius:12,padding:"1.2rem",cursor:"pointer",boxShadow:"0 2px 8px rgba(0,0,0,.04)"}}>
+                <span style={{fontSize:10,fontWeight:500,textTransform:"uppercase",letterSpacing:".05em",padding:"2px 7px",borderRadius:5,background:`${c.bc}22`,color:c.bc}}>{c.b}</span>
+                <div style={{fontFamily:"Georgia,serif",fontSize:14,margin:"7px 0 4px",color:INK}}>{c.title}</div>
+                <div style={{color:MUTED,fontSize:12,lineHeight:1.6}}>{c.d}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{background:INK,borderRadius:12,padding:"1.4rem"}}>
+            <div style={{fontSize:10,color:"rgba(255,255,255,.4)",textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>{lang==="pt"?"Seu nível avaliado":"Your assessed level"}</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:30,color:GOLD}}>{level||(lang==="pt"?"Ainda não avaliado":"Not assessed yet")}</div>
+          </div>
+        </>}
+        {tab===1&&<>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{lang==="pt"?"Avaliação de Nível":"Level Assessment"}</h1>
+          <p style={{color:MUTED,fontSize:14,marginBottom:"1.4rem"}}>{lang==="pt"?"16 perguntas. Sem limite de tempo.":"16 questions. No timer."}</p>
+          <Assessment user={user} lang={lang} onDone={onDone}/>
+        </>}
+        {tab===2&&<>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{lang==="pt"?"Conversação":"Conversation"}</h1>
+          <p style={{color:MUTED,fontSize:14,marginBottom:"1.4rem"}}>{lang==="pt"?"13 cenários com correções ao vivo após cada mensagem.":"13 scenarios with live corrections after every message."}</p>
+          <Conversation user={user} profile={profile} lang={lang}/>
+        </>}
+        {tab===3&&<>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{lang==="pt"?"Leitura":"Reading"}</h1>
+          <p style={{color:MUTED,fontSize:14,marginBottom:"1.4rem"}}>{lang==="pt"?"Leia o artigo e responda às perguntas.":"Read the article and answer the questions."}</p>
+          <Reading user={user} lang={lang}/>
+        </>}
+        {tab===4&&<>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{lang==="pt"?"Gramática":"Grammar Check"}</h1>
+          <p style={{color:MUTED,fontSize:14,marginBottom:"1.4rem"}}>{lang==="pt"?"Escreva e receba correções instantâneas.":"Write and get instant corrections."}</p>
+          <Grammar user={user} profile={profile} lang={lang}/>
+        </>}
+        {tab===5&&<>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{lang==="pt"?"Pronúncia":"Speaking"}</h1>
+          <p style={{color:MUTED,fontSize:14,marginBottom:"1.4rem"}}>{lang==="pt"?"Leia frases em voz alta — receba feedback gentil e prático.":"Read phrases aloud — get gentle, practical feedback."}</p>
+          <Speech user={user} profile={profile} lang={lang}/>
+        </>}
+      </div>
+      <div style={{position:"fixed",bottom:12,right:16,fontSize:11,color:MUTED,pointerEvents:"none"}}>Geanine Giacomin</div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>
