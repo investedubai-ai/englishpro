@@ -37,7 +37,7 @@ const GREEN="#2e7d5e", RED="#c0392b";
 // ── API CALL (via Netlify proxy) ───────────────────────────────────────────────
 async function ask(system, messages) {
   try {
-    const r = await fetch("/.netlify/functions/claude", {
+    const r = await fetch("/api/claude", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ system, messages }),
@@ -285,7 +285,7 @@ function TeacherDashboard({user, profile, onSignOut}) {
     const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
     await sb.from("invites").insert({email: inviteEmail, token, used: false, created_by: user.id, created_at: new Date().toISOString()});
     // Send email via Netlify function
-    const r = await fetch("/.netlify/functions/invite", {
+    const r = await fetch("/api/invite", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({email: inviteEmail, token, teacherName: profile.name || "Your teacher"}),
