@@ -4,17 +4,32 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>EnglishPro — Professional English Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,-apple-system,sans-serif;background:#f7f5f0}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#f7f5f0;-webkit-font-smoothing:antialiased}
+input,textarea,select{font-family:'Inter',system-ui,-apple-system,sans-serif}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#d4cfc8;border-radius:10px}
+::-webkit-scrollbar-thumb:hover{background:#b8b3ab}
 @keyframes dp{0%,80%,100%{opacity:.2}40%{opacity:1}}
 @keyframes bar{from{transform:scaleY(.4)}to{transform:scaleY(1)}}
 @keyframes spin{to{transform:rotate(360deg)}}
-input,textarea,select{font-family:inherit}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.ep-btn{transition:transform .15s ease,box-shadow .15s ease,filter .15s ease}
+.ep-btn:not([disabled]):hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.2);filter:brightness(1.07)}
+.ep-btn:not([disabled]):active{transform:translateY(0);box-shadow:none}
+.ep-card{transition:transform .18s ease,box-shadow .18s ease}
+.ep-card:hover{transform:translateY(-2px)}
+.auth-bg{background-color:#f7f5f0;background-image:radial-gradient(ellipse at 18% 20%,rgba(44,95,138,.08) 0%,transparent 52%),radial-gradient(ellipse at 82% 80%,rgba(184,131,46,.07) 0%,transparent 52%)}
+.fade-in{animation:fadeUp .28s ease forwards}
 </style>
 </head>
 <body>
@@ -77,23 +92,28 @@ function Spinner() {
 
 function Btn({onClick,children,color=INK,disabled,full}) {
   return (
-    <button onClick={disabled?null:onClick} style={{
+    <button onClick={disabled?null:onClick} className="ep-btn" style={{
       padding:"9px 20px", background:disabled?"#ccc":color, color:"#fff",
-      border:"none", borderRadius:8, fontSize:13, fontWeight:500,
+      border:"none", borderRadius:9, fontSize:13, fontWeight:500,
       cursor:disabled?"not-allowed":"pointer", fontFamily:"inherit",
-      opacity:disabled?0.6:1, width:full?"100%":"auto",
+      opacity:disabled?0.5:1, width:full?"100%":"auto", letterSpacing:".01em",
     }}>{children}</button>
   );
 }
 
 function Field({label,type="text",value,onChange,placeholder,autoComplete}) {
+  const [focused,setFocused]=useState(false);
   return (
     <div style={{marginBottom:14}}>
-      <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>{label}</div>
+      <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5,fontWeight:500}}>{label}</div>
       <input type={type} value={value} onChange={e=>onChange(e.target.value)}
         placeholder={placeholder} autoComplete={autoComplete}
-        style={{width:"100%",padding:"9px 12px",background:RAISED,border:`1px solid ${BORDER}`,
-          borderRadius:8,color:INK,fontSize:14,outline:"none",boxSizing:"border-box"}}/>
+        onFocus={()=>setFocused(true)} onBlur={()=>setFocused(false)}
+        style={{width:"100%",padding:"10px 13px",background:RAISED,
+          border:`1.5px solid ${focused?BLUE:BORDER}`,
+          borderRadius:9,color:INK,fontSize:14,outline:"none",boxSizing:"border-box",
+          boxShadow:focused?`0 0 0 3px rgba(44,95,138,.12)`:"none",
+          transition:"border-color .15s,box-shadow .15s"}}/>
     </div>
   );
 }
@@ -163,7 +183,7 @@ const SPEECH_PROMPTS = [
 
 // ── AUTH SCREENS ──────────────────────────────────────────────────────────────
 function AuthScreen({onLogin}) {
-  const [mode, setMode] = useState("login"); // login | register
+  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -172,12 +192,10 @@ function AuthScreen({onLogin}) {
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
 
-  // Check for registration token in URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get("register");
     if (token) {
-      // Validate token and pre-fill email
       sb.from("invites").select("*").eq("token", token).eq("used", false).single()
         .then(({data}) => {
           if (data) { setEmail(data.email); setMode("register"); }
@@ -200,39 +218,50 @@ function AuthScreen({onLogin}) {
     setLoading(true); setError("");
     const {data, error} = await sb.auth.signUp({email, password});
     if (error) { setError(error.message); setLoading(false); return; }
-    // Create profile
     await sb.from("profiles").insert({id: data.user.id, name, role, email, is_teacher: false});
-    // Mark invite as used
     await sb.from("invites").update({used: true}).eq("email", email);
     setMsg("Account created! Please check your email to confirm, then log in.");
     setMode("login");
     setLoading(false);
   }
 
-  const card = {background:SURF,border:`1px solid ${BORDER}`,borderRadius:14,padding:"2rem",width:"100%",maxWidth:380,boxShadow:"0 4px 24px rgba(0,0,0,.08)"};
+  const card = {
+    background:SURF,
+    border:`1px solid ${BORDER}`,
+    borderRadius:18,
+    padding:"2.4rem",
+    width:"100%",
+    maxWidth:400,
+    boxShadow:"0 8px 40px rgba(0,0,0,.09),0 2px 8px rgba(0,0,0,.05)"
+  };
 
   return (
-    <div style={{minHeight:"100vh",background:`linear-gradient(135deg,#e8f4fd,${BG},#fef9f0)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2rem"}}>
-      <div style={{fontFamily:"Georgia,serif",fontSize:"2.4rem",color:INK,marginBottom:4}}>English<span style={{color:GOLD}}>Pro</span></div>
-      <div style={{color:MUTED,fontSize:11,letterSpacing:".1em",textTransform:"uppercase",marginBottom:"2.5rem"}}>Professional English Platform</div>
+    <div className="auth-bg" style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2rem"}}>
+      <div style={{marginBottom:"2.2rem",textAlign:"center"}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:"2.6rem",color:INK,lineHeight:1,letterSpacing:"-.02em"}}>
+          English<span style={{color:GOLD}}>Pro</span>
+        </div>
+        <div style={{width:42,height:2.5,background:`linear-gradient(to right,${BLUE},${GOLD})`,borderRadius:2,margin:"7px auto 9px"}}/>
+        <div style={{color:MUTED,fontSize:10,letterSpacing:".14em",textTransform:"uppercase"}}>Professional English Platform</div>
+      </div>
 
       <div style={card}>
         <div style={{fontFamily:"Georgia,serif",fontSize:20,color:INK,marginBottom:4}}>
           {mode==="login"?"Welcome back · Bem-vindo(a)":"Create your account"}
         </div>
-        <div style={{color:MUTED,fontSize:13,marginBottom:"1.4rem",lineHeight:1.6}}>
+        <div style={{color:MUTED,fontSize:13,marginBottom:"1.5rem",lineHeight:1.6}}>
           {mode==="login"?"Sign in to continue · Entre para continuar":"Set up your EnglishPro account"}
         </div>
 
-        {error && <div style={{padding:"9px 12px",background:"#fdf0ef",border:"1px solid #e8928c",borderRadius:8,fontSize:13,color:RED,marginBottom:14}}>{error}</div>}
-        {msg && <div style={{padding:"9px 12px",background:"#edf7f0",border:"1px solid #7ec8a0",borderRadius:8,fontSize:13,color:"#1e6b40",marginBottom:14}}>{msg}</div>}
+        {error && <div style={{padding:"10px 13px",background:"#fdf0ef",border:"1px solid #e8928c",borderRadius:9,fontSize:13,color:RED,marginBottom:14}}>{error}</div>}
+        {msg && <div style={{padding:"10px 13px",background:"#edf7f0",border:"1px solid #7ec8a0",borderRadius:9,fontSize:13,color:"#1e6b40",marginBottom:14}}>{msg}</div>}
 
         {mode==="register" && (
           <>
             <Field label="Your name · Seu nome" value={name} onChange={setName} placeholder="Ana or Carlos"/>
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>Role · Cargo</div>
-              <select value={role} onChange={e=>setRole(e.target.value)} style={{width:"100%",padding:"9px 12px",background:RAISED,border:`1px solid ${BORDER}`,borderRadius:8,color:INK,fontSize:14,outline:"none",cursor:"pointer"}}>
+              <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5,fontWeight:500}}>Role · Cargo</div>
+              <select value={role} onChange={e=>setRole(e.target.value)} style={{width:"100%",padding:"10px 13px",background:RAISED,border:`1.5px solid ${BORDER}`,borderRadius:9,color:INK,fontSize:14,outline:"none",cursor:"pointer",fontFamily:"inherit"}}>
                 {["executive","assistant","manager","professional"].map(r=><option key={r} value={r}>{r.charAt(0).toUpperCase()+r.slice(1)}</option>)}
               </select>
             </div>
@@ -249,7 +278,7 @@ function AuthScreen({onLogin}) {
         {mode==="login" && (
           <div style={{marginTop:14,textAlign:"center",fontSize:13,color:MUTED}}>
             New student?{" "}
-            <span style={{color:BLUE,cursor:"pointer"}} onClick={()=>setMode("register")}>Create account</span>
+            <span style={{color:BLUE,cursor:"pointer",fontWeight:500}} onClick={()=>setMode("register")}>Create account</span>
           </div>
         )}
       </div>
@@ -267,9 +296,7 @@ function TeacherDashboard({user, profile, onSignOut}) {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentProgress, setStudentProgress] = useState([]);
 
-  useEffect(() => {
-    loadStudents();
-  }, []);
+  useEffect(() => { loadStudents(); }, []);
 
   async function loadStudents() {
     setLoading(true);
@@ -281,10 +308,8 @@ function TeacherDashboard({user, profile, onSignOut}) {
   async function sendInvite() {
     if (!inviteEmail.trim()) return;
     setInviteStatus("sending");
-    // Create invite token
     const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
     await sb.from("invites").insert({email: inviteEmail, token, used: false, created_by: user.id, created_at: new Date().toISOString()});
-    // Send email via Netlify function
     const r = await fetch("/api/invite", {
       method:"POST",
       headers:{"Content-Type":"application/json"},
@@ -314,11 +339,11 @@ function TeacherDashboard({user, profile, onSignOut}) {
     a.href=url; a.download=`${student.name}-progress.csv`; a.click();
   }
 
-  const cardStyle = {background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.4rem",boxShadow:"0 2px 8px rgba(0,0,0,.04)",marginBottom:12};
+  const cardStyle = {background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.4rem",boxShadow:"0 2px 10px rgba(0,0,0,.04)",marginBottom:12};
 
   if (selectedStudent) return (
     <div style={{maxWidth:820,margin:"0 auto",padding:"1.8rem 1rem 4rem"}}>
-      <button onClick={()=>{setSelectedStudent(null);setStudentProgress([]);}} style={{background:"none",border:`1px solid ${BORDER}`,borderRadius:8,padding:"6px 14px",fontSize:13,color:MUTED,cursor:"pointer",fontFamily:"inherit",marginBottom:"1.2rem"}}>
+      <button onClick={()=>{setSelectedStudent(null);setStudentProgress([]);}} style={{background:"none",border:`1px solid ${BORDER}`,borderRadius:8,padding:"6px 14px",fontSize:13,color:MUTED,cursor:"pointer",fontFamily:"inherit",marginBottom:"1.2rem",transition:"border-color .15s"}}>
         ← Back to students
       </button>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1.4rem",flexWrap:"wrap",gap:8}}>
@@ -335,7 +360,7 @@ function TeacherDashboard({user, profile, onSignOut}) {
           <div key={i} style={cardStyle}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
               <div>
-                <span style={{fontSize:10,fontWeight:500,textTransform:"uppercase",letterSpacing:".05em",padding:"2px 8px",borderRadius:5,background:`${BLUE}22`,color:BLUE}}>{p.module}</span>
+                <span style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",padding:"2px 8px",borderRadius:5,background:`${BLUE}22`,color:BLUE}}>{p.module}</span>
               </div>
               <div style={{fontSize:12,color:MUTED}}>{new Date(p.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
             </div>
@@ -353,14 +378,13 @@ function TeacherDashboard({user, profile, onSignOut}) {
       <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:4}}>Teacher Dashboard</h1>
       <p style={{color:MUTED,fontSize:14,marginBottom:"1.8rem"}}>Welcome, {profile.name}. Manage your students and track their progress.</p>
 
-      {/* Invite */}
       <div style={{...cardStyle,borderLeft:`3px solid ${GOLD}`}}>
         <div style={{fontSize:13,fontWeight:500,color:INK,marginBottom:10}}>Invite a new student</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <input value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)}
             onKeyDown={e=>e.key==="Enter"&&sendInvite()}
             placeholder="student@email.com" type="email"
-            style={{flex:1,minWidth:200,padding:"9px 12px",background:RAISED,border:`1px solid ${BORDER}`,borderRadius:8,fontSize:14,outline:"none",color:INK}}/>
+            style={{flex:1,minWidth:200,padding:"10px 13px",background:RAISED,border:`1.5px solid ${BORDER}`,borderRadius:9,fontSize:14,outline:"none",color:INK}}/>
           <Btn onClick={sendInvite} disabled={!inviteEmail.trim()||inviteStatus==="sending"} color={GOLD}>
             {inviteStatus==="sending"?"Sending…":inviteStatus==="sent"?"✓ Sent!":inviteStatus==="error"?"Error — retry":"Send invite →"}
           </Btn>
@@ -368,7 +392,6 @@ function TeacherDashboard({user, profile, onSignOut}) {
         <div style={{fontSize:12,color:MUTED,marginTop:8}}>Student will receive an email with a registration link.</div>
       </div>
 
-      {/* Students list */}
       <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>
         Students ({students.length})
       </div>
@@ -376,9 +399,9 @@ function TeacherDashboard({user, profile, onSignOut}) {
         : students.length === 0
         ? <div style={{...cardStyle,textAlign:"center",color:MUTED,padding:"2rem"}}>No students yet. Send your first invite above.</div>
         : students.map(s => (
-          <div key={s.id} style={{...cardStyle,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}} onClick={()=>viewStudent(s)}>
+          <div key={s.id} className="ep-card" style={{...cardStyle,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}} onClick={()=>viewStudent(s)}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <div style={{width:36,height:36,borderRadius:"50%",background:BLUE,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:600,color:"#fff",flexShrink:0}}>
+              <div style={{width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${BLUE},#4a8ab4)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:600,color:"#fff",flexShrink:0}}>
                 {(s.name||"?")[0].toUpperCase()}
               </div>
               <div>
@@ -426,26 +449,26 @@ function Assessment({user, lang, onDone}) {
     const weak=cats.filter(c=>sc[c]<60);
     const desc={A2:"Iniciante · Elementary",B1:"Intermediário · Intermediate",B2:"Interm. avançado · Upper intermediate",C1:"Avançado · Advanced"}[lvl];
     return (
-      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"2rem",textAlign:"center",boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
-        <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".08em"}}>{lang==="pt"?"Nível estimado":"Estimated level"}</div>
-        <div style={{fontFamily:"Georgia,serif",fontSize:72,color:BLUE,lineHeight:1,margin:"8px 0"}}>{lvl}</div>
+      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:14,padding:"2rem",textAlign:"center",boxShadow:"0 4px 20px rgba(0,0,0,.07)"}}>
+        <div style={{fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:".1em",fontWeight:500}}>{lang==="pt"?"Nível estimado":"Estimated level"}</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:76,color:BLUE,lineHeight:1,margin:"10px 0",letterSpacing:"-.02em"}}>{lvl}</div>
         <p style={{color:MUTED,fontSize:14,margin:"8px 0"}}>{desc}</p>
         <p style={{fontSize:13,color:MUTED}}>{lang==="pt"?"Pontuação":"Score"}: {total}/{QS.length} ({pct}%)</p>
         <div style={{maxWidth:360,margin:"1.4rem auto",textAlign:"left"}}>
           {cats.map(cat=>(
-            <div key={cat} style={{marginBottom:10}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}>
+            <div key={cat} style={{marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}>
                 <span style={{fontWeight:500}}>{cat}</span>
-                <span style={{color:sc[cat]<60?"#b53a2f":"#1e6b40",fontWeight:500}}>{sc[cat]}%</span>
+                <span style={{color:sc[cat]<60?"#b53a2f":"#1e6b40",fontWeight:600}}>{sc[cat]}%</span>
               </div>
-              <div style={{height:5,background:RAISED,borderRadius:3,overflow:"hidden"}}>
-                <div style={{height:"100%",width:`${sc[cat]}%`,background:sc[cat]<60?"#e8928c":BLUE,borderRadius:3}}/>
+              <div style={{height:6,background:RAISED,borderRadius:3,overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${sc[cat]}%`,background:sc[cat]<60?"#e8928c":BLUE,borderRadius:3,transition:"width .5s ease"}}/>
               </div>
             </div>
           ))}
         </div>
         {weak.length>0&&(
-          <div style={{maxWidth:360,margin:"0 auto 1.2rem",padding:"10px 14px",background:"#fef9ec",border:"1px solid #f0c84a",borderRadius:8,fontSize:13,color:"#7a5200",textAlign:"left"}}>
+          <div style={{maxWidth:360,margin:"0 auto 1.2rem",padding:"10px 14px",background:"#fef9ec",border:"1px solid #f0c84a",borderRadius:9,fontSize:13,color:"#7a5200",textAlign:"left"}}>
             <strong>{lang==="pt"?"Áreas para focar":"Focus areas"}:</strong> {weak.join(", ")}
           </div>
         )}
@@ -459,17 +482,17 @@ function Assessment({user, lang, onDone}) {
   return (
     <div>
       <div style={{display:"flex",gap:3,marginBottom:"1.4rem"}}>
-        {QS.map((_,i)=><div key={i} style={{height:4,flex:1,borderRadius:2,background:i<step?GOLD:i===step?BLUE:BORDER}}/>)}
+        {QS.map((_,i)=><div key={i} style={{height:4,flex:1,borderRadius:2,background:i<step?GOLD:i===step?BLUE:BORDER,transition:"background .2s"}}/>)}
       </div>
-      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.6rem",boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
-        <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>{q.cat} · {step+1}/{QS.length}</div>
+      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:14,padding:"1.6rem",boxShadow:"0 2px 14px rgba(0,0,0,.06)"}}>
+        <div style={{fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:8,fontWeight:500}}>{q.cat} · {step+1}/{QS.length}</div>
         <div style={{fontWeight:500,fontSize:15,lineHeight:1.65,marginBottom:"1.2rem",whiteSpace:"pre-line",color:INK}}>{q.q}</div>
         <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:"1.2rem"}}>
           {q.opts.map((o,i)=>{
-            let bg=SURF,border=`1px solid ${BORDER}`,color=INK;
-            if(shown){if(i===q.c){bg="#edf7f0";border="1px solid #7ec8a0";color="#1e6b40";}else if(i===sel){bg="#fdf0ef";border="1px solid #e8928c";color="#b53a2f";}}
-            else if(i===sel){bg="#eef4fb";border=`1px solid ${BLUE}`;color=BLUE;}
-            return <div key={i} onClick={()=>!shown&&setSel(i)} style={{padding:"10px 14px",border,borderRadius:8,cursor:shown?"default":"pointer",fontSize:14,background:bg,color,transition:"all .1s"}}>{o}</div>;
+            let bg=SURF,border=`1.5px solid ${BORDER}`,color=INK;
+            if(shown){if(i===q.c){bg="#edf7f0";border=`1.5px solid #7ec8a0`;color="#1e6b40";}else if(i===sel){bg="#fdf0ef";border=`1.5px solid #e8928c`;color="#b53a2f";}}
+            else if(i===sel){bg="#eef4fb";border=`1.5px solid ${BLUE}`;color=BLUE;}
+            return <div key={i} onClick={()=>!shown&&setSel(i)} style={{padding:"11px 15px",border,borderRadius:9,cursor:shown?"default":"pointer",fontSize:14,background:bg,color,transition:"all .12s ease"}}>{o}</div>;
           })}
         </div>
         {!shown
@@ -516,7 +539,6 @@ function Conversation({user, profile, lang}) {
     const newMsgs=[...next,{a:1,t:reply}];
     setMsgs(newMsgs);
     setBusy(false);
-    // Save to Supabase every 4 messages
     if(newMsgs.filter(m=>m.a===0).length%4===0) {
       await saveProgress(user.id,"conversation",{scenario:sc,messages:newMsgs.slice(-8).map(m=>({role:m.a?"ai":"student",text:m.t}))});
     }
@@ -526,8 +548,8 @@ function Conversation({user, profile, lang}) {
   const biz=Object.entries(SCENARIOS).filter(([,v])=>v.g==="business");
 
   return (
-    <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
-      <div style={{background:INK,padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+    <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:14,overflow:"hidden",boxShadow:"0 2px 14px rgba(0,0,0,.06)"}}>
+      <div style={{background:`linear-gradient(135deg,#1e2235,${INK})`,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
         <div style={{color:"#fff",fontWeight:500,fontSize:14}}>{SCENARIOS[sc].label}</div>
         <select value={sc} onChange={e=>{setSc(e.target.value);start(e.target.value);}} style={{background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.2)",color:"#fff",padding:"5px 9px",borderRadius:7,fontSize:13,cursor:"pointer",outline:"none",fontFamily:"inherit"}}>
           <optgroup label={lang==="pt"?"Dia a dia":"Daily"}>
@@ -546,23 +568,27 @@ function Conversation({user, profile, lang}) {
           const tip=parts.length>1?parts[1]:null;
           return (
             <div key={i} style={{display:"flex",gap:8,maxWidth:"82%",alignSelf:isAI?"flex-start":"flex-end",flexDirection:isAI?"row":"row-reverse"}}>
-              <div style={{width:26,height:26,borderRadius:"50%",background:isAI?BLUE:GOLD,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:"#fff"}}>
+              <div style={{width:28,height:28,borderRadius:"50%",background:isAI?`linear-gradient(135deg,${BLUE},#4a8ab4)`:GOLD,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:"#fff"}}>
                 {isAI?"AI":(name[0]||"U").toUpperCase()}
               </div>
-              <div style={{padding:"9px 13px",borderRadius:11,fontSize:14,lineHeight:1.65,background:isAI?RAISED:INK,color:isAI?INK:"#fff",border:isAI?`1px solid ${BORDER}`:"none",...(isAI?{borderBottomLeftRadius:3}:{borderBottomRightRadius:3})}}>
+              <div style={{padding:"10px 14px",borderRadius:12,fontSize:14,lineHeight:1.65,
+                background:isAI?RAISED:INK,color:isAI?INK:"#fff",
+                border:isAI?`1px solid ${BORDER}`:"none",
+                ...(isAI?{borderBottomLeftRadius:3}:{borderBottomRightRadius:3}),
+                boxShadow:isAI?"0 1px 4px rgba(0,0,0,.05)":"0 2px 8px rgba(26,26,46,.18)"}}>
                 {main?.trim()}
                 {tip&&<div style={{fontSize:12,color:GOLD,borderTop:`1px solid ${BORDER}`,marginTop:7,paddingTop:7}}>Tip:{tip}</div>}
               </div>
             </div>
           );
         })}
-        {busy&&<div style={{display:"flex",gap:8}}><div style={{width:26,height:26,borderRadius:"50%",background:BLUE,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff"}}>AI</div><div style={{padding:"9px 13px",borderRadius:11,background:RAISED,border:`1px solid ${BORDER}`}}><Dots/></div></div>}
+        {busy&&<div style={{display:"flex",gap:8}}><div style={{width:28,height:28,borderRadius:"50%",background:`linear-gradient(135deg,${BLUE},#4a8ab4)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff"}}>AI</div><div style={{padding:"10px 14px",borderRadius:12,background:RAISED,border:`1px solid ${BORDER}`}}><Dots/></div></div>}
       </div>
       <div style={{borderTop:`1px solid ${BORDER}`,padding:"10px 13px",display:"flex",gap:8,alignItems:"flex-end"}}>
         <textarea value={input} onChange={e=>setInput(e.target.value)}
           onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
           placeholder={lang==="pt"?"Digite em inglês…":"Type in English…"}
-          rows={1} style={{flex:1,padding:"8px 12px",border:`1px solid ${BORDER}`,borderRadius:8,fontSize:14,outline:"none",resize:"none",minHeight:40,maxHeight:100,background:RAISED,fontFamily:"inherit",color:INK,lineHeight:1.5}}/>
+          rows={1} style={{flex:1,padding:"9px 13px",border:`1.5px solid ${BORDER}`,borderRadius:9,fontSize:14,outline:"none",resize:"none",minHeight:42,maxHeight:100,background:RAISED,fontFamily:"inherit",color:INK,lineHeight:1.5}}/>
         <Btn onClick={send} disabled={busy||!input.trim()} color={BLUE}>{lang==="pt"?"Enviar":"Send"}</Btn>
       </div>
     </div>
@@ -582,25 +608,25 @@ function Reading({user, lang}) {
   return (
     <div>
       <h3 style={{fontFamily:"Georgia,serif",fontSize:20,color:INK,marginBottom:12}}>The rise of remote work in global business</h3>
-      <div style={{background:RAISED,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.3rem",marginBottom:"1.2rem"}}>
-        {ARTICLE.map((p,i)=><p key={i} style={{marginBottom:11,fontSize:14,lineHeight:1.8,color:INK}}>{p}</p>)}
+      <div style={{background:RAISED,border:`1px solid ${BORDER}`,borderLeft:`3px solid ${BLUE}`,borderRadius:12,padding:"1.4rem",marginBottom:"1.2rem"}}>
+        {ARTICLE.map((p,i)=><p key={i} style={{marginBottom:11,fontSize:14,lineHeight:1.85,color:INK}}>{p}</p>)}
       </div>
-      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.4rem",boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
-        <h4 style={{fontSize:15,fontWeight:500,marginBottom:"1.1rem",color:INK}}>{lang==="pt"?"Perguntas de compreensão":"Comprehension questions"}</h4>
+      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:14,padding:"1.4rem",boxShadow:"0 2px 14px rgba(0,0,0,.06)"}}>
+        <h4 style={{fontSize:15,fontWeight:600,marginBottom:"1.1rem",color:INK}}>{lang==="pt"?"Perguntas de compreensão":"Comprehension questions"}</h4>
         {AQS.map((q,qi)=>{
           const p=picks[qi];
           return (
-            <div key={qi} style={{marginBottom:"1.2rem"}}>
+            <div key={qi} style={{marginBottom:"1.3rem"}}>
               <p style={{fontWeight:500,marginBottom:8,fontSize:14,color:INK}}>{qi+1}. {q.q}</p>
               {q.opts.map((o,oi)=>{
-                let bg=SURF,border=`1px solid ${BORDER}`,color=INK;
-                if(p!==undefined){if(oi===q.c){bg="#edf7f0";border="1px solid #7ec8a0";color="#1e6b40";}else if(oi===p){bg="#fdf0ef";border="1px solid #e8928c";color="#b53a2f";}}
-                return <div key={oi} onClick={()=>p===undefined&&setPicks(x=>({...x,[qi]:oi}))} style={{padding:"9px 13px",border,borderRadius:8,marginBottom:5,cursor:p!==undefined?"default":"pointer",fontSize:14,background:bg,color,transition:"all .1s"}}>{o}</div>;
+                let bg=SURF,border=`1.5px solid ${BORDER}`,color=INK;
+                if(p!==undefined){if(oi===q.c){bg="#edf7f0";border=`1.5px solid #7ec8a0`;color="#1e6b40";}else if(oi===p){bg="#fdf0ef";border=`1.5px solid #e8928c`;color="#b53a2f";}}
+                return <div key={oi} onClick={()=>p===undefined&&setPicks(x=>({...x,[qi]:oi}))} style={{padding:"10px 14px",border,borderRadius:9,marginBottom:5,cursor:p!==undefined?"default":"pointer",fontSize:14,background:bg,color,transition:"all .12s ease"}}>{o}</div>;
               })}
             </div>
           );
         })}
-        {done&&<div style={{padding:"11px 14px",background:score>=5?"#edf7f0":"#eef4fb",border:`1px solid ${score>=5?"#7ec8a0":"#8ab4d8"}`,borderRadius:8,fontSize:14,color:score>=5?"#1e6b40":BLUE}}>
+        {done&&<div style={{padding:"12px 15px",background:score>=5?"#edf7f0":"#eef4fb",border:`1px solid ${score>=5?"#7ec8a0":"#8ab4d8"}`,borderRadius:9,fontSize:14,color:score>=5?"#1e6b40":BLUE}}>
           <strong>{score}/{AQS.length} {lang==="pt"?"corretas":"correct"}.</strong>{" "}
           {score===6?"Perfeito! / Perfect!":score>=4?"Muito bem! / Well done!":"Tente novamente. / Try again."}
         </div>}
@@ -629,21 +655,21 @@ function Grammar({user, profile, lang}) {
   }
 
   return (
-    <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.6rem",boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
-      <h3 style={{fontSize:16,fontWeight:500,marginBottom:5,color:INK}}>{lang==="pt"?"Seu texto":"Your writing"}</h3>
+    <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:14,padding:"1.6rem",boxShadow:"0 2px 14px rgba(0,0,0,.06)"}}>
+      <h3 style={{fontSize:16,fontWeight:600,marginBottom:5,color:INK}}>{lang==="pt"?"Seu texto":"Your writing"}</h3>
       <p style={{color:MUTED,fontSize:14,marginBottom:"1rem",lineHeight:1.6}}>{lang==="pt"?"Escreva naturalmente — os erros fazem parte do aprendizado!":"Write naturally — mistakes are how we learn!"}</p>
       <textarea value={text} onChange={e=>setText(e.target.value)}
         placeholder={lang==="pt"?"Exemplo: I working here since 2 years…":"Example: I working here since 2 years…"}
-        style={{width:"100%",padding:"10px 12px",border:`1px solid ${BORDER}`,borderRadius:8,fontSize:14,lineHeight:1.7,resize:"vertical",minHeight:110,outline:"none",background:RAISED,fontFamily:"inherit",color:INK,boxSizing:"border-box"}}/>
+        style={{width:"100%",padding:"11px 13px",border:`1.5px solid ${BORDER}`,borderRadius:9,fontSize:14,lineHeight:1.75,resize:"vertical",minHeight:110,outline:"none",background:RAISED,fontFamily:"inherit",color:INK,boxSizing:"border-box"}}/>
       <div style={{marginTop:10,display:"flex",alignItems:"center",gap:10}}>
         <Btn onClick={check} disabled={!text.trim()||busy} color={INK}>
           {busy?(lang==="pt"?"Verificando…":"Checking…"):(lang==="pt"?"Verificar meu texto":"Check my writing")}
         </Btn>
         {busy&&<Dots/>}
       </div>
-      {result&&<div style={{marginTop:14,background:RAISED,border:`1px solid ${BORDER}`,borderRadius:10,padding:"1.2rem"}}>
-        <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:".06em",color:BLUE,marginBottom:8,fontWeight:500}}>{lang==="pt"?"Feedback da sua tutora de IA":"Feedback from your AI tutor"}</div>
-        <pre style={{fontSize:14,lineHeight:1.8,whiteSpace:"pre-wrap",fontFamily:"inherit",color:INK,margin:0}}>{result}</pre>
+      {result&&<div style={{marginTop:16,background:RAISED,border:`1px solid ${BORDER}`,borderRadius:11,padding:"1.3rem"}}>
+        <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:".06em",color:BLUE,marginBottom:8,fontWeight:600}}>{lang==="pt"?"Feedback da sua tutora de IA":"Feedback from your AI tutor"}</div>
+        <pre style={{fontSize:14,lineHeight:1.85,whiteSpace:"pre-wrap",fontFamily:"inherit",color:INK,margin:0}}>{result}</pre>
       </div>}
     </div>
   );
@@ -711,7 +737,7 @@ WHAT YOU SAID:\n[transcript]\nCOMPARED TO TARGET:\n[differences, warm tone]\nPRO
   function next(){setPromptIdx(i=>(i+1)%SPEECH_PROMPTS.length);setTranscript("");setFeedback(null);setInterim("");}
 
   if(!supported) return (
-    <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"2rem",textAlign:"center"}}>
+    <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:14,padding:"2rem",textAlign:"center"}}>
       <div style={{fontSize:32,marginBottom:12}}>🎤</div>
       <p style={{color:MUTED,fontSize:14}}>{lang==="pt"?"Use o Chrome ou Edge para esta funcionalidade.":"Please use Chrome or Edge for this feature."}</p>
     </div>
@@ -719,17 +745,17 @@ WHAT YOU SAID:\n[transcript]\nCOMPARED TO TARGET:\n[differences, warm tone]\nPRO
 
   return (
     <div>
-      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.6rem",marginBottom:14,boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
+      <div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:14,padding:"1.6rem",marginBottom:14,boxShadow:"0 2px 14px rgba(0,0,0,.06)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12,flexWrap:"wrap",gap:8}}>
           <div>
-            <div style={{fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:".08em",marginBottom:4}}>{lang==="pt"?"Diga em voz alta":"Read aloud"} · {prompt.topic}</div>
+            <div style={{fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:".08em",marginBottom:4,fontWeight:500}}>{lang==="pt"?"Diga em voz alta":"Read aloud"} · {prompt.topic}</div>
             <div style={{fontFamily:"Georgia,serif",fontSize:20,color:INK,lineHeight:1.5,maxWidth:520}}>"{prompt.text}"</div>
           </div>
-          <button onClick={next} style={{background:"none",border:`1px solid ${BORDER}`,borderRadius:8,padding:"5px 12px",fontSize:12,color:MUTED,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{lang==="pt"?"Outra frase →":"Next phrase →"}</button>
+          <button onClick={next} style={{background:"none",border:`1px solid ${BORDER}`,borderRadius:8,padding:"5px 12px",fontSize:12,color:MUTED,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",transition:"border-color .15s"}}>{lang==="pt"?"Outra frase →":"Next phrase →"}</button>
         </div>
 
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:transcript?12:0}}>
-          <button onClick={listening?stopListening:startListening} style={{width:56,height:56,borderRadius:"50%",background:listening?RED:BLUE,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:listening?`0 0 0 8px ${RED}22`:"0 2px 8px rgba(44,95,138,.3)",transition:"all .2s",flexShrink:0}}>
+          <button onClick={listening?stopListening:startListening} style={{width:56,height:56,borderRadius:"50%",background:listening?RED:BLUE,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:listening?`0 0 0 8px ${RED}22`:"0 4px 12px rgba(44,95,138,.3)",transition:"all .2s",flexShrink:0}}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
               {listening
                 ?<rect x="6" y="6" width="12" height="12" rx="2" fill="white"/>
@@ -748,8 +774,8 @@ WHAT YOU SAID:\n[transcript]\nCOMPARED TO TARGET:\n[differences, warm tone]\nPRO
           </div>}
         </div>
 
-        {(transcript||interim)&&<div style={{background:RAISED,border:`1px solid ${BORDER}`,borderRadius:8,padding:"10px 14px",marginTop:12}}>
-          <div style={{fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>{lang==="pt"?"O que foi captado":"What was captured"}</div>
+        {(transcript||interim)&&<div style={{background:RAISED,border:`1px solid ${BORDER}`,borderRadius:9,padding:"10px 14px",marginTop:12}}>
+          <div style={{fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5,fontWeight:500}}>{lang==="pt"?"O que foi captado":"What was captured"}</div>
           <div style={{fontSize:14,color:INK,lineHeight:1.6}}>{transcript}{interim&&<span style={{color:MUTED}}> {interim}</span>}</div>
           {transcript&&!listening&&<button onClick={()=>{setTranscript("");setFeedback(null);}} style={{marginTop:7,background:"none",border:"none",fontSize:12,color:MUTED,cursor:"pointer",padding:0,fontFamily:"inherit"}}>✕ {lang==="pt"?"Limpar":"Clear"}</button>}
         </div>}
@@ -760,9 +786,9 @@ WHAT YOU SAID:\n[transcript]\nCOMPARED TO TARGET:\n[differences, warm tone]\nPRO
         </div>}
       </div>
 
-      {feedback&&<div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.4rem",marginBottom:14,boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
-        <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:".06em",color:BLUE,marginBottom:8,fontWeight:500}}>{lang==="pt"?"Feedback da sua tutora de IA":"Feedback from your AI tutor"}</div>
-        <pre style={{fontSize:14,lineHeight:1.8,whiteSpace:"pre-wrap",fontFamily:"inherit",color:INK,margin:0}}>{feedback}</pre>
+      {feedback&&<div style={{background:SURF,border:`1px solid ${BORDER}`,borderRadius:14,padding:"1.4rem",marginBottom:14,boxShadow:"0 2px 14px rgba(0,0,0,.06)"}}>
+        <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:".06em",color:BLUE,marginBottom:8,fontWeight:600}}>{lang==="pt"?"Feedback da sua tutora de IA":"Feedback from your AI tutor"}</div>
+        <pre style={{fontSize:14,lineHeight:1.85,whiteSpace:"pre-wrap",fontFamily:"inherit",color:INK,margin:0}}>{feedback}</pre>
         <div style={{marginTop:12,display:"flex",gap:8}}>
           <Btn onClick={next} color={BLUE}>{lang==="pt"?"Próxima frase →":"Next phrase →"}</Btn>
           <Btn onClick={()=>{setTranscript("");setFeedback(null);}} color={INK}>{lang==="pt"?"Tentar novamente":"Try again"}</Btn>
@@ -770,10 +796,10 @@ WHAT YOU SAID:\n[transcript]\nCOMPARED TO TARGET:\n[differences, warm tone]\nPRO
       </div>}
 
       {history.length>0&&<div style={{background:RAISED,border:`1px solid ${BORDER}`,borderRadius:12,padding:"1.2rem"}}>
-        <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>{lang==="pt"?"Histórico desta sessão":"This session's history"}</div>
+        <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:".08em",marginBottom:10,fontWeight:500}}>{lang==="pt"?"Histórico desta sessão":"This session's history"}</div>
         {history.map((h,i)=>(
           <div key={i} style={{borderTop:i>0?`1px solid ${BORDER}`:"none",paddingTop:i>0?10:0,marginTop:i>0?10:0}}>
-            <div style={{fontSize:11,color:GOLD,fontWeight:500,marginBottom:2}}>{h.topic}</div>
+            <div style={{fontSize:11,color:GOLD,fontWeight:600,marginBottom:2}}>{h.topic}</div>
             <div style={{fontSize:13,color:MUTED,fontStyle:"italic"}}>"{h.transcript}"</div>
           </div>
         ))}
@@ -814,7 +840,7 @@ function App() {
   if (authLoading) return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:BG}}>
       <div style={{textAlign:"center"}}>
-        <div style={{fontFamily:"Georgia,serif",fontSize:"2rem",color:INK,marginBottom:16}}>English<span style={{color:GOLD}}>Pro</span></div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:"2rem",color:INK,marginBottom:16,letterSpacing:"-.02em"}}>English<span style={{color:GOLD}}>Pro</span></div>
         <Spinner/>
       </div>
     </div>
@@ -824,12 +850,12 @@ function App() {
 
   // Teacher view
   if (profile?.is_teacher) return (
-    <div style={{fontFamily:"system-ui,-apple-system,sans-serif",background:BG,minHeight:"100vh",color:INK}}>
-      <div style={{background:INK,padding:"10px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
-        <div style={{fontFamily:"Georgia,serif",fontSize:18,color:"#fff"}}>English<span style={{color:GOLD}}>Pro</span> <span style={{fontSize:11,color:GOLD,letterSpacing:".08em",textTransform:"uppercase"}}>Teacher</span></div>
-        <div style={{display:"flex",alignItems:"center",gap:9}}>
-          <span style={{color:"rgba(255,255,255,.6)",fontSize:13}}>{profile.name}</span>
-          <button onClick={handleSignOut} style={{background:"none",border:"1px solid rgba(255,255,255,.2)",borderRadius:7,color:"rgba(255,255,255,.5)",fontSize:12,padding:"4px 9px",cursor:"pointer",fontFamily:"inherit"}}>Sign out</button>
+    <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",background:BG,minHeight:"100vh",color:INK}}>
+      <div style={{background:INK,padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 12px rgba(0,0,0,.2)"}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:18,color:"#fff",letterSpacing:"-.01em"}}>English<span style={{color:GOLD}}>Pro</span> <span style={{fontSize:10,color:GOLD,letterSpacing:".1em",textTransform:"uppercase"}}>Teacher</span></div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{color:"rgba(255,255,255,.55)",fontSize:13}}>{profile.name}</span>
+          <button onClick={handleSignOut} style={{background:"none",border:"1px solid rgba(255,255,255,.2)",borderRadius:7,color:"rgba(255,255,255,.5)",fontSize:12,padding:"4px 10px",cursor:"pointer",fontFamily:"inherit",transition:"border-color .15s"}}>Sign out</button>
         </div>
       </div>
       <TeacherDashboard user={user} profile={profile} onSignOut={handleSignOut}/>
@@ -850,6 +876,15 @@ function App() {
     setLevel(p<=35?"A2":p<=55?"B1":p<=75?"B2":"C1");
   }
 
+  // Module icons (inline SVG)
+  const ICONS = {
+    1: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="11" width="3" height="3" rx="1" fill="currentColor" opacity=".4"/><rect x="6" y="7.5" width="3" height="6.5" rx="1" fill="currentColor" opacity=".7"/><rect x="11" y="3.5" width="3" height="10.5" rx="1" fill="currentColor"/></svg>,
+    2: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 3a1 1 0 011-1h6a1 1 0 011 1v3.5a1 1 0 01-1 1H6L4.5 8.5V7.5H3a1 1 0 01-1-1V3z" fill="currentColor" opacity=".55"/><path d="M6.5 8h2.5a1 1 0 011 1v2.5a1 1 0 01-1 1H8.5L7.5 13.5V12.5H6.5a1 1 0 01-1-1V9a1 1 0 011-1z" fill="currentColor"/></svg>,
+    3: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1.5 3A1.5 1.5 0 013 1.5H7.5v12H3A1.5 1.5 0 011.5 12V3z" fill="currentColor" opacity=".5"/><path d="M8.5 1.5H12A1.5 1.5 0 0113.5 3v9A1.5 1.5 0 0112 13.5H8.5V1.5z" fill="currentColor"/></svg>,
+    4: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M10.5 1.5L4 8 2.5 11.5 6 10l6.5-6.5-2-2z" fill="currentColor" opacity=".6"/><path d="M8.5 3.5l3 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>,
+    5: <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="5.5" y="1" width="4" height="7" rx="2" fill="currentColor" opacity=".55"/><path d="M2.5 6.5a5 5 0 0010 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none"/><line x1="7.5" y1="11.5" x2="7.5" y2="14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><line x1="5.5" y1="14" x2="9.5" y2="14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>,
+  };
+
   const cards=[
     {b:lang==="pt"?"Comece aqui":"Start here",bc:GOLD,title:lang==="pt"?"Avaliação de Nível":"Level Assessment",d:lang==="pt"?"16 perguntas de gramática, vocabulário, leitura e negócios.":"16 questions across grammar, vocabulary, reading & business.",idx:1},
     {b:lang==="pt"?"Prática":"Practice",bc:BLUE,title:lang==="pt"?"Conversação":"Conversation",d:lang==="pt"?"13 cenários com correções ao vivo.":"13 scenarios with live corrections.",idx:2},
@@ -859,66 +894,84 @@ function App() {
   ];
 
   return (
-    <div style={{fontFamily:"system-ui,-apple-system,sans-serif",background:BG,minHeight:"100vh",color:INK}}>
-      <div style={{background:INK,padding:"10px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
-        <div style={{fontFamily:"Georgia,serif",fontSize:18,color:"#fff"}}>English<span style={{color:GOLD}}>Pro</span></div>
-        <div style={{display:"flex",alignItems:"center",gap:9}}>
-          <div style={{width:28,height:28,borderRadius:"50%",background:BLUE,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:600,color:"#fff"}}>{(profile?.name||user.email)[0].toUpperCase()}</div>
-          <span style={{color:"rgba(255,255,255,.6)",fontSize:13}}>{profile?.name}</span>
-          <button onClick={handleSignOut} style={{background:"none",border:"1px solid rgba(255,255,255,.2)",borderRadius:7,color:"rgba(255,255,255,.5)",fontSize:12,padding:"4px 9px",cursor:"pointer",fontFamily:"inherit"}}>{lang==="pt"?"Sair":"Sign out"}</button>
+    <div style={{fontFamily:"'Inter',system-ui,-apple-system,sans-serif",background:BG,minHeight:"100vh",color:INK}}>
+      {/* Header */}
+      <div style={{background:INK,padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 12px rgba(0,0,0,.22)"}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:18,color:"#fff",letterSpacing:"-.01em"}}>English<span style={{color:GOLD}}>Pro</span></div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:30,height:30,borderRadius:"50%",background:`linear-gradient(135deg,${BLUE},#4a8ab4)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:600,color:"#fff"}}>{(profile?.name||user.email)[0].toUpperCase()}</div>
+          <span style={{color:"rgba(255,255,255,.55)",fontSize:13}}>{profile?.name}</span>
+          <button onClick={handleSignOut} style={{background:"none",border:"1px solid rgba(255,255,255,.2)",borderRadius:7,color:"rgba(255,255,255,.5)",fontSize:12,padding:"4px 10px",cursor:"pointer",fontFamily:"inherit",transition:"border-color .15s"}}>{lang==="pt"?"Sair":"Sign out"}</button>
         </div>
       </div>
-      <div style={{background:SURF,borderBottom:`1px solid ${BORDER}`,display:"flex",padding:"0 18px",overflowX:"auto"}}>
+
+      {/* Tab bar */}
+      <div style={{background:SURF,borderBottom:`1px solid ${BORDER}`,display:"flex",padding:"0 20px",overflowX:"auto",boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
         {TABS.map((t,i)=>(
-          <button key={i} onClick={()=>setTab(i)} style={{padding:"11px 14px",background:"none",border:"none",fontFamily:"inherit",fontSize:13,fontWeight:500,color:tab===i?INK:MUTED,cursor:"pointer",borderBottom:tab===i?`2px solid ${GOLD}`:"2px solid transparent",whiteSpace:"nowrap"}}>{t}</button>
+          <button key={i} onClick={()=>setTab(i)} style={{
+            padding:"12px 16px",background:"none",border:"none",
+            fontFamily:"inherit",fontSize:13,fontWeight:tab===i?600:400,
+            color:tab===i?INK:MUTED,cursor:"pointer",
+            borderBottom:tab===i?`2px solid ${GOLD}`:"2px solid transparent",
+            whiteSpace:"nowrap",transition:"color .15s"
+          }}>{t}</button>
         ))}
       </div>
+
       <div style={{maxWidth:820,margin:"0 auto",padding:"1.8rem 1rem 4rem"}}>
 
         {tab===0&&<>
-          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{greet}, {profile?.name}</h1>
-          <p style={{color:MUTED,fontSize:14,marginBottom:"1.5rem",lineHeight:1.6,maxWidth:480}}>{lang==="pt"?"Trabalhe em cada módulo — tente passar uma hora para identificar seus pontos fortes e fracos.":"Work through each module — aim for one hour to identify your strengths and weaknesses."}</p>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(175px,1fr))",gap:10,marginBottom:12}}>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5,letterSpacing:"-.01em"}}>{greet}, {profile?.name}</h1>
+          <p style={{color:MUTED,fontSize:14,marginBottom:"1.6rem",lineHeight:1.65,maxWidth:480}}>{lang==="pt"?"Trabalhe em cada módulo — tente passar uma hora para identificar seus pontos fortes e fracos.":"Work through each module — aim for one hour to identify your strengths and weaknesses."}</p>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(175px,1fr))",gap:10,marginBottom:14}}>
             {cards.map(c=>(
-              <div key={c.idx} onClick={()=>setTab(c.idx)} style={{background:SURF,border:`1px solid ${BORDER}`,borderLeft:`3px solid ${c.bc}`,borderRadius:12,padding:"1.2rem",cursor:"pointer",boxShadow:"0 2px 8px rgba(0,0,0,.04)"}}>
-                <span style={{fontSize:10,fontWeight:500,textTransform:"uppercase",letterSpacing:".05em",padding:"2px 7px",borderRadius:5,background:`${c.bc}22`,color:c.bc}}>{c.b}</span>
-                <div style={{fontFamily:"Georgia,serif",fontSize:14,margin:"7px 0 4px",color:INK}}>{c.title}</div>
-                <div style={{color:MUTED,fontSize:12,lineHeight:1.6}}>{c.d}</div>
+              <div key={c.idx} onClick={()=>setTab(c.idx)} className="ep-card" style={{
+                background:SURF,border:`1px solid ${BORDER}`,borderLeft:`3px solid ${c.bc}`,
+                borderRadius:12,padding:"1.3rem",cursor:"pointer",
+                boxShadow:"0 2px 10px rgba(0,0,0,.04)"
+              }}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:7}}>
+                  <span style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:".05em",padding:"2px 8px",borderRadius:5,background:`${c.bc}22`,color:c.bc}}>{c.b}</span>
+                  <div style={{color:c.bc,opacity:.75,flexShrink:0}}>{ICONS[c.idx]}</div>
+                </div>
+                <div style={{fontFamily:"Georgia,serif",fontSize:14,margin:"5px 0 4px",color:INK}}>{c.title}</div>
+                <div style={{color:MUTED,fontSize:12,lineHeight:1.65}}>{c.d}</div>
               </div>
             ))}
           </div>
-          <div style={{background:INK,borderRadius:12,padding:"1.4rem"}}>
-            <div style={{fontSize:10,color:"rgba(255,255,255,.4)",textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>{lang==="pt"?"Seu nível avaliado":"Your assessed level"}</div>
-            <div style={{fontFamily:"Georgia,serif",fontSize:30,color:GOLD}}>{level||(lang==="pt"?"Ainda não avaliado":"Not assessed yet")}</div>
+          <div style={{background:`linear-gradient(135deg,${INK},#232340)`,borderRadius:14,padding:"1.6rem",boxShadow:"0 4px 20px rgba(26,26,46,.2)"}}>
+            <div style={{fontSize:10,color:"rgba(255,255,255,.38)",textTransform:"uppercase",letterSpacing:".1em",marginBottom:4,fontWeight:500}}>{lang==="pt"?"Seu nível avaliado":"Your assessed level"}</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:32,color:GOLD,letterSpacing:"-.01em"}}>{level||(lang==="pt"?"Ainda não avaliado":"Not assessed yet")}</div>
+            {level&&<div style={{fontSize:12,color:"rgba(255,255,255,.35)",marginTop:4}}>{lang==="pt"?"Continue praticando para melhorar":"Keep practising to improve"}</div>}
           </div>
         </>}
 
         {tab===1&&<>
-          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{lang==="pt"?"Avaliação de Nível":"Level Assessment"}</h1>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5,letterSpacing:"-.01em"}}>{lang==="pt"?"Avaliação de Nível":"Level Assessment"}</h1>
           <p style={{color:MUTED,fontSize:14,marginBottom:"1.4rem"}}>{lang==="pt"?"16 perguntas. Sem limite de tempo.":"16 questions. No timer."}</p>
           <Assessment user={user} lang={lang} onDone={onDone}/>
         </>}
 
         {tab===2&&<>
-          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{lang==="pt"?"Conversação":"Conversation"}</h1>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5,letterSpacing:"-.01em"}}>{lang==="pt"?"Conversação":"Conversation"}</h1>
           <p style={{color:MUTED,fontSize:14,marginBottom:"1.4rem"}}>{lang==="pt"?"13 cenários com correções ao vivo após cada mensagem.":"13 scenarios with live corrections after every message."}</p>
           <Conversation user={user} profile={profile} lang={lang}/>
         </>}
 
         {tab===3&&<>
-          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{lang==="pt"?"Leitura":"Reading"}</h1>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5,letterSpacing:"-.01em"}}>{lang==="pt"?"Leitura":"Reading"}</h1>
           <p style={{color:MUTED,fontSize:14,marginBottom:"1.4rem"}}>{lang==="pt"?"Leia o artigo e responda às perguntas.":"Read the article and answer the questions."}</p>
           <Reading user={user} lang={lang}/>
         </>}
 
         {tab===4&&<>
-          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{lang==="pt"?"Gramática":"Grammar Check"}</h1>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5,letterSpacing:"-.01em"}}>{lang==="pt"?"Gramática":"Grammar Check"}</h1>
           <p style={{color:MUTED,fontSize:14,marginBottom:"1.4rem"}}>{lang==="pt"?"Escreva e receba correções instantâneas.":"Write and get instant corrections."}</p>
           <Grammar user={user} profile={profile} lang={lang}/>
         </>}
 
         {tab===5&&<>
-          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5}}>{lang==="pt"?"Pronúncia":"Speaking"}</h1>
+          <h1 style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:500,marginBottom:5,letterSpacing:"-.01em"}}>{lang==="pt"?"Pronúncia":"Speaking"}</h1>
           <p style={{color:MUTED,fontSize:14,marginBottom:"1.4rem"}}>{lang==="pt"?"Leia frases em voz alta — receba feedback gentil e prático.":"Read phrases aloud — get gentle, practical feedback."}</p>
           <Speech user={user} profile={profile} lang={lang}/>
         </>}
